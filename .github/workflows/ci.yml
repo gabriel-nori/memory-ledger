@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     # bash everywhere (Git Bash on Windows), so every step reads the same on
     # all three; `python` is what setup-python puts on PATH on each.
     defaults:
@@ -93,7 +94,20 @@ jobs:
       # builds it from scripts/requirements-server.txt), and the cache step
       # above keeps that to one pip install per pin change.
       - name: Install pytest
-        run: python -m pip install pytest
+        run: python -m pip install pytest pytest-timeout
+
+      # Why the server does (not) come up, in the open: the real command the
+      # fixtures run, with its whole output, capped at 60 s. Never fails the job.
+      - name: Diagnose the API server start
+        continue-on-error: true
+        env:
+          SECOND_BRAIN_HOME: ${{ runner.temp }}/brain-diag
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+          PYTHONIOENCODING: utf-8
+        run: |
+          mkdir -p "$SECOND_BRAIN_HOME"
+          start=$(date +%s)
+          timeout 60 python scripts/serve.py --port 8765 --no-open --no-reload --no-build || echo "exit $? after $(( $(date +%s) - start ))s"
 
       # SECOND_BRAIN_HOME points at a temp dir so a run can never touch a real
       # brain (conftest.py also scrubs the Neo4j and integration variables and
@@ -112,7 +126,7 @@ jobs:
           SECOND_BRAIN_HOME: ${{ runner.temp }}/brain
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
           PYTHONIOENCODING: utf-8
-        run: python -m pytest tests
+        run: python -m pytest tests --timeout=300 --durations=25
 
       # Manifest validation exists because .claude-plugin/plugin.json and
       # marketplace.json are hand-edited and never executed — a typo or a
