@@ -4873,10 +4873,40 @@ _CUE_STOP = {
 }
 
 
+# Associated nodes with more edges than HUB_FREE_DEGREE are divided by
+# sqrt(degree/HUB_FREE_DEGREE), on top of the log penalty — the owner's own node
+# stops polluting generic recalls.
+HUB_FREE_DEGREE = 8
+# Associated rows scoring under this fraction of the top row are dropped.
+RECALL_TAIL_CUT = 0.15
+
+# Longest first. A stem is only taken when >= 4 chars remain, so short words and
+# acronyms are left alone. The stem feeds a PREFIX query (`"deploy"*`), so
+# `deploys`/`deploying`/`deployed` all land on `deploy…` — and it never has to
+# equal a real word, only to be a safe prefix of the inflections.
+_STEM_SUFFIXES = (
+    "mente", "ções", "coes", "ção", "cao", "ando", "endo", "indo",
+    "ings", "ing", "ied", "ies", "ed", "es", "s", "ões", "oes", "ais", "eis", "is",
+)
+
+
+def _stem(w: str) -> str:
+    for suf in _STEM_SUFFIXES:
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            return w[: -len(suf)]
+    return w
+
+
 def _fts_terms(q: str):
     words = [t for t in re.findall(r"\w+", (q or "").lower()) if len(t) > 2]
     kept = [t for t in words if t not in _CUE_STOP]
     return kept or words          # never end up with an empty cue
+
+
+def _fts_query(words) -> str:
+    """OR of prefix terms over the stemmed words (deduplicated, order kept)."""
+    stems = list(dict.fromkeys(_stem(w) for w in words))
+    return " OR ".join(f'"{w}"*' for w in stems)
 
 
 def cmd_recall(args):
@@ -4898,7 +4928,7 @@ def api_recall(con, q: str, *, limit=8, depth=None, budget=None, include_all=Fal
     words = _fts_terms(q)
     seeds = {}
     if words:
-        terms = " OR ".join(f'"{w}"*' for w in words)
+        terms = _fts_query(words)
         try:
             rows = con.execute(
                 "SELECT n.* FROM nodes_fts f JOIN nodes n ON n.rowid=f.rowid"
@@ -4918,6 +4948,8 @@ def api_recall(con, q: str, *, limit=8, depth=None, budget=None, include_all=Fal
     # individual links weak while a sparse, specific link stays strong.
     act = dict(seeds)
     frontier = dict(seeds)
+    origin = {k: k for k in seeds}        # node -> seed that fed it most
+    best_in = {}                          # node -> strongest single share received
     for _ in range(max(0, int(depth))):
         nxt = {}
         for nid, a in frontier.items():
@@ -4933,6 +4965,9 @@ def api_recall(con, q: str, *, limit=8, depth=None, budget=None, include_all=Fal
             for e in nbrs:
                 nxt[e["other"]] = nxt.get(e["other"], 0.0) + share
                 act[e["other"]] = act.get(e["other"], 0.0) + share
+                if share > best_in.get(e["other"], 0.0):
+                    best_in[e["other"]] = share
+                    origin[e["other"]] = origin.get(nid, nid)
         frontier = nxt
         if not frontier:
             break
@@ -4971,11 +5006,27 @@ def api_recall(con, q: str, *, limit=8, depth=None, budget=None, include_all=Fal
         # a lexical hit earned its rank.
         if nid not in seeds:
             score /= (1.0 + math.log2(1.0 + deg.get(nid, 0)))
+            score /= max(1.0, math.sqrt(deg.get(nid, 0) / HUB_FREE_DEGREE))
         row = _slim(d, words)
         row["score"] = round(score, 4)
-        row["why"] = "matched" if nid in seeds else "associated"
+        if nid in seeds:
+            row["why"] = "matched"
+        else:
+            src = nodes.get(origin.get(nid, ""))
+            if src is None and origin.get(nid):
+                r = con.execute("SELECT title FROM nodes WHERE id=?",
+                                (origin[nid],)).fetchone()
+                src = {"title": r["title"]} if r else None
+            row["why"] = (f'linked to "{(src["title"] or "")[:48]}"' if src
+                          else "associated")
         scored.append((score, row))
     scored.sort(key=lambda x: -x[0])
+    # Tail cut: past a gap, the rest is noise that only costs budget. Matched rows
+    # are never cut — a lexical hit earned its place.
+    if scored:
+        floor = scored[0][0] * RECALL_TAIL_CUT
+        scored = [(sc, r) for sc, r in scored
+                  if sc >= floor or r["why"] == "matched"]
 
     results, used = [], 0
     for _, row in scored:
