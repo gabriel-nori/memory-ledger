@@ -225,7 +225,15 @@ class ServeProcess:
             [sys.executable, str(SERVE), "--port", str(port), "--no-open", "--no-reload", *flags],
             env=env, stdout=self._out, stderr=subprocess.STDOUT, **group_kwargs())
 
+    # Set once a server fails to come up: the next ones fail at once with the
+    # same log instead of each waiting out SERVER_START_TIMEOUT_S.
+    never_came_up: str | None = None
+
     def wait_ready(self, timeout: float = SERVER_START_TIMEOUT_S) -> None:
+        if ServeProcess.never_came_up is not None:
+            self.stop()
+            raise RuntimeError("an earlier server never came up (not retrying):\n"
+                               + ServeProcess.never_came_up)
         deadline = time.time() + timeout
         while time.time() < deadline and self.proc.poll() is None:
             try:
@@ -233,9 +241,10 @@ class ServeProcess:
                 return
             except OSError:
                 time.sleep(0.25)
-        tail = self.log.read_text(encoding=UTF8, errors="replace")[-2000:]
+        log = self.log.read_text(encoding=UTF8, errors="replace")
         self.stop()
-        raise RuntimeError("the server never came up:\n" + tail)
+        ServeProcess.never_came_up = log
+        raise RuntimeError("the server never came up:\n" + log)
 
     def stop(self) -> None:
         """Ctrl-C where the platform has one (the server shuts down cleanly),
