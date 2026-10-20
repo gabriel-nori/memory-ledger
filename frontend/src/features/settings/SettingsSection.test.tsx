@@ -282,11 +282,14 @@ describe("Settings — where the data lives", () => {
   it("changing the cutoff drops the plan, so a stale preview cannot be confirmed", async () => {
     const { user } = renderApp(<SettingsSection />, { route: "/settings" });
     await screen.findByText("/home/brain/graph.db");
+    // Found before the preview renders: a label lookup walks the whole page, and
+    // once the plan is on screen that walk alone takes about a second.
+    const cutoff = screen.getByLabelText("Keep the last N days loose");
     await user.click(screen.getByRole("button", { name: "Preview" }));
     await screen.findByText("What this would change");
 
-    await user.clear(screen.getByLabelText("Keep the last N days loose"));
-    await user.type(screen.getByLabelText("Keep the last N days loose"), "30");
+    await user.clear(cutoff);
+    await user.type(cutoff, "30");
 
     expect(screen.queryByText("What this would change")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Consolidate" })).toBeDisabled();
