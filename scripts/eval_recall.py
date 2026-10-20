@@ -16,8 +16,15 @@ part-of, or an id quoted in the text). That is a WEAK label — review it. Cases
 `run` works on a throwaway COPY of graph.db: recall reinforces what it reads, and
 an eval must not change the brain it measures.
 """
+
 from __future__ import annotations
-import argparse, json, os, re, shutil, sys, tempfile
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,7 +43,9 @@ def build(args):
     con = graph.connect()
     known = {r["id"] for r in con.execute("SELECT id FROM nodes")}
     cases = []
-    for m in con.execute("SELECT id, body FROM nodes WHERE id LIKE 'message\\_agents-%' ESCAPE '\\'"):
+    for m in con.execute(
+        "SELECT id, body FROM nodes WHERE id LIKE 'message\\_agents-%' ESCAPE '\\'"
+    ):
         body = m["body"] or ""
         first = body.split("\n", 1)[0]
         if not first.startswith("Owner:"):
@@ -45,24 +54,37 @@ def build(args):
         if len(q) < args.min_len:
             continue
         want = set()
-        for e in con.execute("SELECT src, dst FROM edges WHERE src=? OR dst=?", (m["id"], m["id"])):
+        for e in con.execute(
+            "SELECT src, dst FROM edges WHERE src=? OR dst=?", (m["id"], m["id"])
+        ):
             o = e["dst"] if e["src"] == m["id"] else e["src"]
             if not o.startswith(("conversation_", "message_")):
                 want.add(o)
-        want |= {t for t in re.findall(r"[`\[]\[?([a-z0-9_\-]{8,})", body) if t in known} - {m["id"]}
-        cases.append({"query": q, "source": m["id"], "expect": sorted(want), "reviewed": False})
+        want |= {
+            t for t in re.findall(r"[`\[]\[?([a-z0-9_\-]{8,})", body) if t in known
+        } - {m["id"]}
+        cases.append(
+            {"query": q, "source": m["id"], "expect": sorted(want), "reviewed": False}
+        )
     p = cases_path(args.cases)
     p.write_text(json.dumps(cases, ensure_ascii=False, indent=1), encoding="utf-8")
     withexp = sum(1 for c in cases if c["expect"])
-    print(f"{len(cases)} drafts ({withexp} with a draft expect) -> {p}\nreview, set reviewed=true, then run.")
+    print(
+        f"{len(cases)} drafts ({withexp} with a draft expect) -> {p}\nreview, set reviewed=true, then run."
+    )
 
 
 def run(args):
-    cases = [c for c in json.loads(cases_path(args.cases).read_text(encoding="utf-8"))
-             if c.get("reviewed") and c.get("expect")]
+    cases = [
+        c
+        for c in json.loads(cases_path(args.cases).read_text(encoding="utf-8"))
+        if c.get("reviewed") and c.get("expect")
+    ]
     if not cases:
         sys.exit("no reviewed cases with an expect list")
-    cu = graph.connect(); src = graph.db_path(); cu.close()
+    cu = graph.connect()
+    src = graph.db_path()
+    cu.close()
     tmp = Path(tempfile.mkdtemp()) / "graph.db"
     shutil.copy(src, tmp)
     os.environ["SECOND_BRAIN_DB"] = str(tmp)
@@ -73,17 +95,22 @@ def run(args):
             graph.HUB_FREE_DEGREE, graph.RECALL_TAIL_CUT = hub, cut
             hit = rec = ln = 0
             for c in cases:
-                r = graph.api_recall(con, c["query"], limit=args.k, wire=False,
-                                     exclude=[c["source"]])["results"]
+                r = graph.api_recall(
+                    con, c["query"], limit=args.k, wire=False, exclude=[c["source"]]
+                )["results"]
                 got = {x["id"] for x in r}
                 want = set(c["expect"])
-                hit += bool(got & want); rec += len(got & want) / len(want); ln += len(r)
+                hit += bool(got & want)
+                rec += len(got & want) / len(want)
+                ln += len(r)
             n = len(cases)
             print(f"{hub:<4} {cut:<5} {hit/n:5.0%}  {rec/n:6.0%}  {ln/n:6.1f}")
     shutil.rmtree(tmp.parent)
 
 
-ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+)
 ap.add_argument("cmd", choices=["build", "run"])
 ap.add_argument("--cases")
 ap.add_argument("--min-len", type=int, default=25)
