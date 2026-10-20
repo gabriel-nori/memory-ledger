@@ -333,6 +333,8 @@ def db() -> sqlite3.Connection:
     for col in ("draft", "draft_at", "verbosity", "tts"):
         if col not in have:
             con.execute(f"ALTER TABLE agent_conv ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+    if graph.agents_sync_on():
+        graph._ensure_mirror_triggers(con)      # the tables exist only now
     con.commit()
     return con
 
@@ -1161,9 +1163,15 @@ def run_reply(msg_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"no reply {msg_id}"}
     reply = _msg_row(r)
     # Claimed only while still pending: a cancel in between wins.
+    # With AGENTS_SYNC a `running` reply may belong to another machine: it is
+    # claimable only once its heartbeat has gone stale.
+    if graph.agents_sync_on():
+        free, args = "status='queued' OR (status='running' AND beat_at<?)", (time.time() - BEAT_STALE_S,)
+    else:
+        free, args = "status IN ('queued','running')", ()
     claimed = con.execute("UPDATE agent_msg SET status='running', started_at=?, owner_pid=?,"
-                          " beat_at=? WHERE id=? AND status IN ('queued','running')",
-                          (now_iso(), os.getpid(), time.time(), msg_id)).rowcount
+                          f" beat_at=? WHERE id=? AND ({free})",
+                          (now_iso(), os.getpid(), time.time(), msg_id, *args)).rowcount
     con.commit()
     if not claimed:
         return {"ok": False, "error": f"reply {msg_id} was cancelled"}
@@ -1296,6 +1304,14 @@ def _work(msg_id: str) -> None:
 
 BEAT_S = 10          # heartbeat period of a running reply
 BEAT_STALE_S = 30    # no heartbeat for this long: the owner is gone
+
+
+def is_processing(row: Any) -> bool:
+    """A reply still in flight: queued, or running with a live heartbeat. The
+    heartbeat, not the pid, decides — a pid only means something on its own machine."""
+    if row["status"] == "queued":
+        return True
+    return row["status"] == "running" and time.time() - (row["beat_at"] or 0) < BEAT_STALE_S
 
 
 def _alive(pid: int) -> bool:

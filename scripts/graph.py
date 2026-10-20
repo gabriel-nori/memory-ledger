@@ -725,6 +725,45 @@ MIRROR_TABLES = {
     "trigger_checkpoint": ("source",),
 }
 
+# Agent chats ride along only with AGENTS_SYNC=1 (off by default). Ids are unique
+# per message and a message is only appended to, so two machines cannot collide;
+# `draft` stays local (see AGENT_LOCAL_COLS) and `owner_pid` means nothing off
+# the machine that ran the reply, so neither is sent.
+AGENT_MIRROR_TABLES = {"agent_conv": ("id",), "agent_msg": ("id",)}
+AGENT_LOCAL_COLS = {"agent_conv": ("draft", "draft_at"), "agent_msg": ("owner_pid",)}
+
+
+def agents_sync_on() -> bool:
+    return os.environ.get("AGENTS_SYNC") == "1"
+
+
+def mirror_tables() -> dict:
+    """The tables mirrored now: the fixed ones, plus the agent chat when on."""
+    return {**MIRROR_TABLES, **AGENT_MIRROR_TABLES} if agents_sync_on() else MIRROR_TABLES
+
+
+def put_row(con, table: str, data: dict) -> bool:
+    """Write a row pulled from the master. An upsert, so columns that never
+    leave this machine (the draft) keep their local value."""
+    cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+    d = {k: v for k, v in data.items() if k in cols}
+    pk = mirror_tables().get(table)
+    if not d or not pk:
+        return False
+    if table == "agent_msg":
+        r = con.execute("SELECT status, beat_at FROM agent_msg WHERE id=?",
+                        (d.get("id"),)).fetchone()
+        # a reply this machine finished, or is running, is not rolled back
+        if r and (r["status"] in ("done", "error", "cancelled")
+                  and d.get("status") in ("queued", "running")
+                  or r["status"] == "running" and d.get("status") != "done"):
+            return False
+    sets = ", ".join(f"{k}=excluded.{k}" for k in d if k not in pk) or f"{pk[0]}={pk[0]}"
+    con.execute(f"INSERT INTO {table}({', '.join(d)}) VALUES({', '.join('?' * len(d))}) "
+                f"ON CONFLICT({', '.join(pk)}) DO UPDATE SET {sets}", list(d.values()))
+    return True
+
+
 # Every statement that changes the master takes the next number from one clock
 # node and stamps it (`_seq`) with the machine that wrote it (`_origin`). The
 # clock is write-locked until its transaction commits, so numbers commit in
@@ -797,7 +836,7 @@ def _ensure_mirror_triggers(con) -> None:
                      f"ON edges {when} BEGIN INSERT INTO outbox(kind,ref,created) "
                      f"VALUES {edge_vals}; END")
     have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    for table, pk in MIRROR_TABLES.items():
+    for table, pk in mirror_tables().items():
         if table not in have:
             continue          # created later by its owner, who calls this again
         for op in ("insert", "update", "delete"):
@@ -859,7 +898,7 @@ def _edge_payload(con, src, dst, rel):
 def _row_payload(con, table, key):
     """One mirrored row, or None if it is gone. `key` is the JSON array the
     trigger wrote, which is also the row's identity on the master."""
-    pk = MIRROR_TABLES.get(table)
+    pk = mirror_tables().get(table)
     if not pk:
         return None
     try:
@@ -873,8 +912,9 @@ def _row_payload(con, table, key):
         return None
     if not r:
         return None
+    d = {k: v for k, v in dict(r).items() if k not in AGENT_LOCAL_COLS.get(table, ())}
     return {"uid": table + EDGE_SEP + key, "table": table, "key": key,
-            "data": json.dumps(dict(r), ensure_ascii=False)}
+            "data": json.dumps(d, ensure_ascii=False)}
 
 
 FLUSH_BATCH = 300      # ops per transaction; ~2s against the master at this size
@@ -920,7 +960,7 @@ def _flush_batch(con, rows):
         p = _row_payload(con, table, key)
         if p:
             up_rows.append(p)
-        elif table in MIRROR_TABLES:
+        elif table in mirror_tables():
             del_rows.append(ref)
     counts = {"nodes": len(nodes), "edges": len(edges),
               "del_nodes": len(del_ids), "del_edges": len(dedges),
