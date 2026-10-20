@@ -1063,6 +1063,18 @@ def test_prompt_recall_can_be_turned_on_and_off_through_the_settings_route(api: 
     assert r.json()["effective"]["prompt_recall"] is False
 
 
+# ------------------------------------------------------------- agents sync
+def test_agents_sync_is_off_by_default_and_follows_the_settings_route(api: Api) -> None:
+    eff = api.get(SETTINGS).json()["effective"]
+    assert eff["agents_sync"] is False and eff["agents_sync_source"] == "default"
+    r = api.post(SETTINGS, {"agents_sync": True})
+    assert r.status == 200, r.raw[:160]
+    assert r.json()["effective"]["agents_sync"] is True
+    assert r.json()["effective"]["agents_sync_source"] == "settings"
+    r = api.post(SETTINGS, {"agents_sync": False})
+    assert r.json()["effective"]["agents_sync"] is False
+
+
 # ----------------------------------------------------------- learned rules
 def test_learned_rules_proposals_over_the_api(api: Api) -> None:
     """The switch, the detector, and a proposal's life: one story, in order."""

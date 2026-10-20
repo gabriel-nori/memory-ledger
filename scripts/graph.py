@@ -261,7 +261,7 @@ def learned_skills_dir() -> Path:
 # ---------------------------------------------------------------------------
 SETTING_KEYS = ["tz", "realm", "owner", "brain_name", "backend", "autosync", "consolidate",
                 "map_poll_seconds", "dash_refresh_seconds", "ui_sync",
-                "learned_rules", "prompt_recall"]
+                "learned_rules", "prompt_recall", "agents_sync"]
 
 # `backend` is where READS come from by default (writes always hit SQLite first
 # and mirror onward, whatever this says). `auto` is the honest setting for a
@@ -734,7 +734,9 @@ AGENT_LOCAL_COLS = {"agent_conv": ("draft", "draft_at"), "agent_msg": ("owner_pi
 
 
 def agents_sync_on() -> bool:
-    return os.environ.get("AGENTS_SYNC") == "1"
+    """AGENTS_SYNC=1 forces it on for a process; otherwise the `agents_sync`
+    setting (Settings page) decides, off by default."""
+    return os.environ.get("AGENTS_SYNC") == "1" or flag("agents_sync")
 
 
 def mirror_tables() -> dict:

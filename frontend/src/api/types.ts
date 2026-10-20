@@ -447,6 +447,8 @@ export interface StoredSettings {
   learned_rules: boolean;
   /** Gated per-prompt recall. Off by default; it spends context tokens when it fires. */
   prompt_recall: boolean;
+  /** Mirror Agents tab chats to the master. Off by default. */
+  agents_sync: boolean;
   map_poll_seconds: number;
   dash_refresh_seconds: number;
 }
@@ -477,6 +479,8 @@ export interface EffectiveSettings {
   learned_rules_source: SettingSource;
   prompt_recall: boolean;
   prompt_recall_source: SettingSource;
+  agents_sync: boolean;
+  agents_sync_source: SettingSource;
   map_poll_seconds: number;
   dash_refresh_seconds: number;
 }

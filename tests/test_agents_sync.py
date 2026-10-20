@@ -121,3 +121,13 @@ class TestClaim:
         con.commit()
         assert self.claim(con, "a1", monkeypatch)["ok"] is True
         assert self.claim(con, "a1", monkeypatch)["ok"] is False
+
+
+def test_the_agents_sync_setting_turns_it_on_without_the_env_var(monkeypatch, tmp_path):
+    import graph
+    monkeypatch.delenv("AGENTS_SYNC", raising=False)
+    monkeypatch.setenv("MEMORY_LEDGER_HOME", str(tmp_path))
+    assert graph.agents_sync_on() is False
+    graph.save_settings({"agents_sync": True})
+    assert graph.agents_sync_on() is True
+    assert "agent_conv" in graph.mirror_tables()

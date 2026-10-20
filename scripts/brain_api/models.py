@@ -153,6 +153,8 @@ class Settings(Body):
                                                   "OFF by default. null or empty resets it.")
     prompt_recall: Any = Field(None, description="true | false; gated per-prompt recall, "
                                                   "OFF by default. null or empty resets it.")
+    agents_sync: Any = Field(None, description="true | false; mirror the Agents tab chats to "
+                                                "the master, OFF by default. null or empty resets it.")
     map_poll_seconds: Any = Field(None, description="1–600.")
     dash_refresh_seconds: Any = Field(None, description="5–3600.")
 
