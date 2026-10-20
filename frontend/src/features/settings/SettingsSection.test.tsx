@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { SettingsSection } from "./SettingsSection";
 import { renderApp } from "@/test/utils";
 import { failWith, resetWrites, server, writes } from "@/test/server";
 import { doctorFixture, settingsFixture, statusFixture } from "@/test/fixtures";
+
+// Every test mounts the whole page, which fires a dozen requests at the mock
+// server (~500ms locally even for a one-assert test). The multi-step flows take
+// ~1.4s here and ~5.3s on a CI runner, right at the 5s default, so this file
+// gets more headroom rather than a flake.
+vi.setConfig({ testTimeout: 15_000 });
 
 beforeEach(resetWrites);
 
@@ -282,11 +288,14 @@ describe("Settings — where the data lives", () => {
   it("changing the cutoff drops the plan, so a stale preview cannot be confirmed", async () => {
     const { user } = renderApp(<SettingsSection />, { route: "/settings" });
     await screen.findByText("/home/brain/graph.db");
+    // Found before the preview renders: a label lookup walks the whole page, and
+    // once the plan is on screen that walk alone takes about a second.
+    const cutoff = screen.getByLabelText("Keep the last N days loose");
     await user.click(screen.getByRole("button", { name: "Preview" }));
     await screen.findByText("What this would change");
 
-    await user.clear(screen.getByLabelText("Keep the last N days loose"));
-    await user.type(screen.getByLabelText("Keep the last N days loose"), "30");
+    await user.clear(cutoff);
+    await user.type(cutoff, "30");
 
     expect(screen.queryByText("What this would change")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Consolidate" })).toBeDisabled();
@@ -316,6 +325,20 @@ describe("Prompt recall", () => {
     await waitFor(() =>
       expect(writes.find((w) => w.path === "/api/settings")?.body).toMatchObject({
         prompt_recall: true,
+      }),
+    );
+  });
+});
+
+describe("Agents sync", () => {
+  it("is off by default and writes the switch through the settings route", async () => {
+    const { user } = renderApp(<SettingsSection />, { route: "/settings" });
+    const box = await screen.findByRole("checkbox", { name: /Sync Agents chats across machines/ });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await waitFor(() =>
+      expect(writes.find((w) => w.path === "/api/settings")?.body).toMatchObject({
+        agents_sync: true,
       }),
     );
   });

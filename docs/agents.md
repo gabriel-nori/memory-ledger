@@ -208,6 +208,27 @@ Storage is two tables in the brain's database, `agent_conv` and `agent_msg`. The
 graph holds the memory (`conversation` and `message` nodes). The tables hold the
 UI's view: status, event log, cost, tokens.
 
+## Syncing chats across machines
+
+Off by default. With it on, `agent_conv` and `agent_msg` ride along with the
+Neo4j mirror (see [neo4j.md](neo4j.md)), so a conversation started on one
+machine shows up on another. Turn it on in **Settings → Sync Agents chats across
+machines** (the `agents_sync` setting), or set `AGENTS_SYNC=1` in the server's
+environment. The variable wins over the setting: the switch shows locked, with
+the source of the value (`default`, `settings` or `env`) beside it.
+
+- **Local stays local.** The unsent `draft` (and `draft_at`) and a reply's
+  `owner_pid` never leave the machine. A pid means nothing anywhere else.
+- **No collisions.** Ids are unique per message and a message is only appended
+  to, so two machines cannot overwrite each other.
+- **No rollback.** A reply this machine finished or is running is never put back
+  to `queued` or `running` by a pull.
+- **Who runs a reply.** With sync on, a `running` reply may belong to another
+  machine. It is claimable only once its heartbeat is older than 30s
+  (`BEAT_STALE_S`), and "still in flight" is decided by that heartbeat, not by
+  the pid. Two machines can still pick up the same `queued` reply at the same
+  moment; closing that would take a lock in Neo4j.
+
 ## Markdown and documents in the chat
 
 The agent's replies are read as Markdown: headings, lists, quotes, tables and

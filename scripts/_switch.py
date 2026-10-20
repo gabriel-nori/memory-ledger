@@ -225,7 +225,9 @@ BOOL_SETTINGS = {"autosync": True, "consolidate": True, "ui_sync": False,
                  "learned_rules": False,
                  # gated per-prompt recall (hooks/capture_prompt.py): opt-in, it
                  # spends context tokens on every prompt it fires on
-                 "prompt_recall": False}
+                 "prompt_recall": False,
+                 # agent chats mirrored to the master (graph.agents_sync_on): opt-in
+                 "agents_sync": False}
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 _BOOL_FALSE = {"0", "false", "no", "off"}
