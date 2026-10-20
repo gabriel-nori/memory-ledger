@@ -51,21 +51,25 @@ venv. Run from a plain `python3`, this command line re-runs itself there.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _platform  # noqa: E402
+import b2b_files  # noqa: E402
 import graph  # noqa: E402
 import trigger  # noqa: E402
 from _switch import _env  # noqa: E402
@@ -81,6 +85,13 @@ BROKERS_MAX = 20
 USER_ID_RE = r"[A-Za-z0-9_-]{43}"
 BROKER_ID_RE = r"[a-z0-9][a-z0-9-]{0,39}"
 HTTP_TIMEOUT_S = 20
+FILE_TIMEOUT_S = 300           # one sealed file, up and down
+ATTACHMENTS_DIR = "chat_attachments"
+MSG_ID_RE = r"[0-9a-f]{32}"
+# A staged message is tried again for these: the relay was out of reach or full.
+# Anything else (a bad request, a refused file) is final.
+RETRY_STATUSES = (0, 429, 503, 507)
+ATTACHMENT_TRIES = 50          # a download that keeps failing is given up on
 # A session this close to its end is renewed rather than used.
 SESSION_MARGIN_S = 120
 
@@ -123,6 +134,21 @@ CREATE TABLE IF NOT EXISTS b2b_sent (
     sent_at     TEXT NOT NULL,
     request_id  TEXT NOT NULL DEFAULT ''    -- the trigger request it was sent for, if any
 );
+CREATE TABLE IF NOT EXISTS b2b_attachment (
+    file_id     TEXT PRIMARY KEY,           -- the relay's id for the sealed file
+    message_id  TEXT NOT NULL,
+    peer_id     TEXT NOT NULL,              -- the sender
+    broker_id   TEXT NOT NULL,
+    key         TEXT NOT NULL DEFAULT '',   -- cleared once downloaded
+    nonce       TEXT NOT NULL DEFAULT '',
+    sha256      TEXT NOT NULL,
+    names       TEXT NOT NULL DEFAULT '[]', -- JSON list, as the sender named them
+    state       TEXT NOT NULL DEFAULT 'pending',   -- pending | done | failed
+    error       TEXT NOT NULL DEFAULT '',
+    tries       INTEGER NOT NULL DEFAULT 0,
+    dir         TEXT NOT NULL DEFAULT '',
+    received_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS b2b_allowed (
     user_id     TEXT PRIMARY KEY,           -- a brain that may send to this one
     name        TEXT NOT NULL DEFAULT '',
@@ -135,7 +161,9 @@ LATE_COLUMNS = {
     "b2b_peer": {"broker_id": "TEXT NOT NULL DEFAULT ''",     # the broker that reaches them
                  "person_id": "TEXT NOT NULL DEFAULT ''"},    # the person node they are
     "b2b_sent": {"broker_id": "TEXT NOT NULL DEFAULT ''",
-                 "human": "INTEGER NOT NULL DEFAULT 0"},     # typed in the Messages chat
+                 "human": "INTEGER NOT NULL DEFAULT 0",      # typed in the Messages chat
+                 "status": "TEXT NOT NULL DEFAULT 'sent'",   # staged | sent | failed
+                 "files": "TEXT NOT NULL DEFAULT ''"},       # JSON list of attached names
 }
 
 
@@ -457,6 +485,29 @@ def _call(method: str, url: str, body: dict[str, Any] | None = None,
         raise B2BError(f"could not reach the broker at {url}: {e}") from None
 
 
+def _call_raw(method: str, url: str, data: bytes | None = None,
+              token: str = "") -> tuple[bytes, dict[str, str]]:
+    """One call to a broker with a raw body and a raw answer (a sealed file).
+    Raises `B2BError` as `_call` does; the headers come back lowercased."""
+    headers = {"Content-Type": "application/octet-stream"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=FILE_TIMEOUT_S) as r:
+            return r.read(), {k.lower(): v for k, v in r.headers.items()}
+    except urllib.error.HTTPError as e:
+        try:
+            why = json.loads(e.read() or b"{}").get("error") or e.reason
+        except ValueError:
+            why = e.reason
+        err = B2BError(f"broker said {e.code}: {why}")
+        err.status = e.code  # type: ignore[attr-defined]
+        raise err from None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise B2BError(f"could not reach the broker at {url}: {e}") from None
+
+
 # Retrieval tokens, per broker and identity, for this process only: an hour
 # long, and a new challenge is cheap, so they are never written down.
 _SESSIONS: dict[tuple[str, str], tuple[str, float]] = {}
@@ -519,6 +570,18 @@ def _authed(cfg: dict[str, Any], broker: dict[str, Any], method: str, path: str,
         if getattr(e, "status", 0) != 401:
             raise
     return _call(method, broker["url"] + path, body, login(cfg, broker, renew=True))
+
+
+def _authed_raw(cfg: dict[str, Any], broker: dict[str, Any], method: str,
+                path: str) -> tuple[bytes, dict[str, str]]:
+    """`_authed` for a raw answer."""
+    tok = login(cfg, broker)
+    try:
+        return _call_raw(method, broker["url"] + path, None, tok)
+    except B2BError as e:
+        if getattr(e, "status", 0) != 401:
+            raise
+    return _call_raw(method, broker["url"] + path, None, login(cfg, broker, renew=True))
 
 
 def check_broker(broker_id: str) -> dict[str, Any]:
@@ -712,15 +775,57 @@ def disallow_sender(con: sqlite3.Connection, uid: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- send
-def send(to: str, text: str, request_id: str = "", human: bool = False) -> dict[str, Any]:
+def attachments_root() -> Path:
+    """`<home>/chat_attachments`: one folder per chat, named by the peer's user id."""
+    return graph.home_dir() / ATTACHMENTS_DIR
+
+
+def _chat_dir(peer_id: str, *parts: str) -> Path:
+    """`<home>/chat_attachments/<peer_id>/...`. The ids come from other brains, so
+    each is checked to be what it claims before it becomes a path."""
+    if not re.fullmatch(USER_ID_RE, peer_id) or any(
+            not re.fullmatch(MSG_ID_RE, p) for p in parts if p != "sent"):
+        raise B2BError("not a chat or message id")
+    return attachments_root().joinpath(peer_id, *parts)
+
+
+def sent_dir(peer_id: str, message_id: str) -> Path:
+    """Where what this brain sent to `peer_id` is kept, to send it again if
+    something went wrong. Never cleaned by the brain: that is the owner's."""
+    return _chat_dir(peer_id, "sent", message_id)
+
+
+def received_dir(peer_id: str, message_id: str) -> Path:
+    """Where the attachments of a message from `peer_id` are unpacked."""
+    return _chat_dir(peer_id, message_id)
+
+
+def _write_private(path: Path, data: bytes) -> None:
+    """A file only the owner reads, written whole or not at all."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def send(to: str, text: str, request_id: str = "", human: bool = False,
+         files: list[str] | None = None) -> dict[str, Any]:
     """Seal `text` to a connected peer (by id, name or person) and leave it on
     their broker, and log it. Sent from a trigger session (`request_id`, or
     `$MEMORY_LEDGER_REQUEST_ID`), it is also an action on that request.
 
     `human` says a person typed it (the Messages chat). It travels sealed with
-    the text, so the recipient can show who wrote it; anything else is a bot."""
+    the text, so the recipient can show who wrote it; anything else is a bot.
+
+    `files` (paths) are zipped, sealed with a key of their own and left on the
+    broker; the key and the file's id travel inside the sealed message. The
+    zip is kept in `sent_dir`. When the broker is out of reach or refuses for
+    room (their box is full), the message stays **staged** and `poll` sends it
+    later; the answer is `ok` with `staged: true`."""
     text = (text or "").strip()
-    if not text:
+    if not text and not files:
         return {"ok": False, "error": "missing text"}
     if len(text) > TEXT_MAX:
         return {"ok": False, "error": f"text is over {TEXT_MAX} characters"}
@@ -735,6 +840,9 @@ def send(to: str, text: str, request_id: str = "", human: bool = False) -> dict[
                                       f"broker {peer['broker_id'] or '(none)'}, which is not "
                                       "configured"}
     sent_at = trigger.now_iso()
+    rid = request_id or os.environ.get("MEMORY_LEDGER_REQUEST_ID", "")
+    if files:
+        return _send_with_files(cfg, con, peer, broker, text, human, files, sent_at, rid)
     try:
         c = _crypto()
         try:
@@ -746,19 +854,139 @@ def send(to: str, text: str, request_id: str = "", human: bool = False) -> dict[
                     {"from": env["from"], "to": peer["peer_id"], "envelope": env})
     except B2BError as e:
         return {"ok": False, "error": str(e)}
-    rid = request_id or os.environ.get("MEMORY_LEDGER_REQUEST_ID", "")
     con.execute("INSERT OR IGNORE INTO b2b_sent(id, peer_id, text, sent_at, request_id, "
                 "broker_id, human) VALUES(?,?,?,?,?,?,?)",
                 (env["id"], peer["peer_id"], text, sent_at, rid, broker["id"],
                  1 if human else 0))
     con.commit()
+    return _sent_result(con, peer, broker, env["id"], sent_at, got.get("sent_at"), human, rid)
+
+
+def _sent_result(con: sqlite3.Connection, peer: dict[str, Any], broker: dict[str, Any],
+                 msg_id: str, sent_at: str, queued_at: Any, human: bool,
+                 rid: str) -> dict[str, Any]:
+    """Log the send on its request, and the answer `send` gives."""
     if rid and trigger.get_request(con, rid):
         trigger.log_action(con, rid, "b2b-send", f"b2b:{peer['peer_id']}",
                            f"sent a B2B message to {peer['name'] or peer['peer_id']} "
                            f"through {broker['id']}")
-    return {"ok": True, "id": env["id"], "to": peer["peer_id"], "name": peer["name"],
-            "broker": broker["id"], "sent_at": sent_at, "queued_at": got.get("sent_at"),
+    return {"ok": True, "id": msg_id, "to": peer["peer_id"], "name": peer["name"],
+            "broker": broker["id"], "sent_at": sent_at, "queued_at": queued_at,
             "human": bool(human)}
+
+
+def _send_with_files(cfg: dict[str, Any], con: sqlite3.Connection, peer: dict[str, Any],
+                     broker: dict[str, Any], text: str, human: bool, files: list[str],
+                     sent_at: str, rid: str) -> dict[str, Any]:
+    """Zip, keep and stage a message with attachments, then try to deliver it."""
+    try:
+        data, names = b2b_files.zip_files(files)
+    except b2b_files.BadArchive as e:
+        return {"ok": False, "error": str(e)}
+    msg_id, file_id = uuid.uuid4().hex, uuid.uuid4().hex
+    c = _crypto()
+    meta = {"id": msg_id, "peer_id": peer["peer_id"], "broker_id": broker["id"],
+            "text": text, "human": bool(human), "sent_at": sent_at, "request_id": rid,
+            "file": {"id": file_id, "key": c.b64(os.urandom(32)), "nonce": c.b64(os.urandom(12)),
+                     "names": names, "size": len(data)}}
+    d = sent_dir(peer["peer_id"], msg_id)
+    _write_private(d / "attachments.zip", data)
+    _write_private(d / "message.json", json.dumps(meta, indent=2).encode("utf-8"))
+    con.execute("INSERT INTO b2b_sent(id, peer_id, text, sent_at, request_id, broker_id, human, "
+                "status, files) VALUES(?,?,?,?,?,?,?,?,?)",
+                (msg_id, peer["peer_id"], text, sent_at, rid, broker["id"], 1 if human else 0,
+                 "staged", json.dumps(names)))
+    con.commit()
+    return deliver_staged(cfg, con, msg_id)
+
+
+def deliver_staged(cfg: dict[str, Any], con: sqlite3.Connection,
+                   msg_id: str) -> dict[str, Any]:
+    """Try to deliver one staged message: upload its sealed file, then leave the
+    message. Whatever the broker says that means "not now" (unreachable, full,
+    over its quota) leaves it staged; anything else marks it `failed`. The same
+    ids are used on every try, so a retry is never a second message."""
+    row = con.execute("SELECT * FROM b2b_sent WHERE id=? AND status='staged'",
+                      (msg_id,)).fetchone()
+    if not row:
+        return {"ok": False, "error": f"no staged message {msg_id}"}
+    try:
+        meta = json.loads((sent_dir(row["peer_id"], msg_id) / "message.json")
+                          .read_text(encoding="utf-8"))
+        zipped = (sent_dir(row["peer_id"], msg_id) / "attachments.zip").read_bytes()
+    except (OSError, ValueError, B2BError) as e:
+        return _mark_failed(con, msg_id, f"the staged files are unreadable: {e}")
+    broker = get_broker(cfg, row["broker_id"])
+    if not broker:
+        return {"ok": True, "staged": True, "id": msg_id, "to": row["peer_id"],
+                "reason": f"broker {row['broker_id']} is not configured"}
+    f = meta["file"]
+    c = _crypto()
+    try:
+        blob = c.seal_file(c.unb64(f["key"]), c.unb64(f["nonce"]), f["id"], zipped)
+        sha = hashlib.sha256(blob).hexdigest()
+        me = c.user_id_of(private_key(cfg))
+        _call_raw("POST", f"{broker['url']}/files?id={f['id']}&from={me}"
+                          f"&to={row['peer_id']}&sha256={sha}", blob)
+        env = c.seal(private_key(cfg), row["peer_id"], {
+            "text": meta["text"], "sent_at": meta["sent_at"], "human": bool(meta["human"]),
+            "files": [{"id": f["id"], "key": f["key"], "nonce": f["nonce"], "sha256": sha,
+                       "size": len(blob), "names": f["names"]}]}, msg_id=msg_id)
+        try:
+            got = _call("POST", broker["url"] + "/messages",
+                        {"from": env["from"], "to": row["peer_id"], "envelope": env})
+        except B2BError as e:
+            if "already waiting" not in str(e):      # a retry of one that did arrive
+                raise
+            got = {}
+    except (B2BError, c.BadBox, ValueError) as e:
+        if isinstance(e, B2BError) and getattr(e, "status", 0) in RETRY_STATUSES:
+            return {"ok": True, "staged": True, "id": msg_id, "to": row["peer_id"],
+                    "broker": broker["id"], "reason": str(e)}
+        return _mark_failed(con, msg_id, str(e))
+    con.execute("UPDATE b2b_sent SET status='sent' WHERE id=?", (msg_id,))
+    con.commit()
+    peer = get_peer(con, row["peer_id"]) or {"peer_id": row["peer_id"], "name": ""}
+    return {**_sent_result(con, peer, broker, msg_id, row["sent_at"], got.get("sent_at"),
+                           bool(row["human"]), row["request_id"]),
+            "staged": False, "files": f["names"]}
+
+
+def _mark_failed(con: sqlite3.Connection, msg_id: str, why: str) -> dict[str, Any]:
+    """A staged message that cannot be sent, ever: kept in the log, not retried."""
+    con.execute("UPDATE b2b_sent SET status='failed' WHERE id=?", (msg_id,))
+    con.commit()
+    return {"ok": False, "error": why, "id": msg_id}
+
+
+def flush_staged(cfg: dict[str, Any], con: sqlite3.Connection) -> dict[str, list]:
+    """One try at every staged message, oldest first."""
+    out: dict[str, list] = {"sent": [], "staged": [], "failed": []}
+    for r in con.execute("SELECT id FROM b2b_sent WHERE status='staged' ORDER BY sent_at"
+                         ).fetchall():
+        res = deliver_staged(cfg, con, r["id"])
+        out["failed" if not res.get("ok") else "staged" if res.get("staged") else "sent"
+            ].append(r["id"])
+    return out
+
+
+def resend(msg_id: str) -> dict[str, Any]:
+    """Send a message again as a new one, with the files kept in its `sent_dir`."""
+    con = db()
+    row = con.execute("SELECT * FROM b2b_sent WHERE id=?", (msg_id,)).fetchone()
+    if not row:
+        return {"ok": False, "error": f"no sent message {msg_id}"}
+    zipped = sent_dir(row["peer_id"], msg_id) / "attachments.zip"
+    if not zipped.is_file():
+        return send(row["peer_id"], row["text"], human=bool(row["human"]))
+    try:
+        names = json.loads(row["files"] or "[]")
+        with tempfile.TemporaryDirectory(prefix="b2b-resend-") as tmp:
+            b2b_files.extract_zip(zipped.read_bytes(), Path(tmp) / "x")
+            return send(row["peer_id"], row["text"], human=bool(row["human"]),
+                        files=[str(Path(tmp) / "x" / n) for n in names])
+    except (OSError, ValueError, b2b_files.BadArchive) as e:
+        return {"ok": False, "error": f"cannot read the kept files: {e}"}
 
 
 def list_sent(con: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:
@@ -789,6 +1017,123 @@ def message_event(msg: dict[str, Any], peer: dict[str, Any] | None,
             "permalink": "", "text": str(msg.get("text") or "")[:TEXT_MAX], "meta": meta}
 
 
+def _file_refs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The attachments an opened message declares, only the well-formed ones."""
+    out = []
+    for f in payload.get("files") or []:
+        if isinstance(f, dict) and re.fullmatch(MSG_ID_RE, str(f.get("id") or "")) \
+                and re.fullmatch(r"[0-9a-f]{64}", str(f.get("sha256") or "")) \
+                and f.get("key") and f.get("nonce"):
+            out.append(f)
+    return out[:1]
+
+
+def _note_attachment(con: sqlite3.Connection, broker: dict[str, Any], msg: dict[str, Any],
+                     ref: dict[str, Any]) -> None:
+    names = [str(n)[:255] for n in (ref.get("names") or []) if isinstance(n, str)][:200]
+    con.execute("INSERT OR IGNORE INTO b2b_attachment(file_id, message_id, peer_id, broker_id, "
+                "key, nonce, sha256, names, received_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (ref["id"], msg["id"], msg["from"], broker["id"], ref["key"], ref["nonce"],
+                 ref["sha256"], json.dumps(names), trigger.now_iso()))
+    con.commit()
+
+
+def _attachment_state(con: sqlite3.Connection, file_id: str, state: str, error: str = "",
+                      **cols: Any) -> None:
+    sets = {"state": state, "error": error[:500], **cols}
+    con.execute(f"UPDATE b2b_attachment SET {', '.join(k + '=?' for k in sets)} WHERE file_id=?",
+                (*sets.values(), file_id))
+    con.commit()
+
+
+def download_attachment(cfg: dict[str, Any], con: sqlite3.Connection,
+                        file_id: str) -> dict[str, Any]:
+    """Fetch one pending attachment, check it against the hash the sealed message
+    carried, open it, unpack it (refusing a zip-slip or a zip-bomb) into
+    `received_dir`, and only then delete it from the relay. Unreachable or full
+    (`RETRY_STATUSES`) leaves it `pending` for the next pass; anything else, or
+    `ATTACHMENT_TRIES` failures, marks it `failed`. The key is cleared once done."""
+    row = con.execute("SELECT * FROM b2b_attachment WHERE file_id=? AND state='pending'",
+                      (file_id,)).fetchone()
+    if not row:
+        return {"ok": False, "error": f"no pending attachment {file_id}"}
+    broker = get_broker(cfg, row["broker_id"])
+    if not broker:
+        return {"ok": False, "pending": True, "error": f"broker {row['broker_id']} is gone"}
+    c = _crypto()
+    try:
+        blob, headers = _authed_raw(cfg, broker, "GET", f"/files/{file_id}")
+        if hashlib.sha256(blob).hexdigest() != row["sha256"] \
+                or headers.get("x-sha256", row["sha256"]) != row["sha256"]:
+            raise b2b_files.BadArchive("the file does not match its hash")
+        data = c.open_file(c.unb64(row["key"]), c.unb64(row["nonce"]), file_id, blob)
+        dest = received_dir(row["peer_id"], row["message_id"])
+        written = b2b_files.extract_zip(data, dest)
+    except B2BError as e:
+        tries = row["tries"] + 1
+        if getattr(e, "status", 0) in RETRY_STATUSES and tries < ATTACHMENT_TRIES:
+            _attachment_state(con, file_id, "pending", str(e), tries=tries)
+            return {"ok": False, "pending": True, "error": str(e)}
+        _attachment_state(con, file_id, "failed", str(e), tries=tries, key="", nonce="")
+        return {"ok": False, "error": str(e)}
+    except (c.BadBox, b2b_files.BadArchive, ValueError) as e:
+        _attachment_state(con, file_id, "failed", str(e), tries=row["tries"] + 1,
+                          key="", nonce="")
+        try:     # it will never be read; do not leave it on the relay
+            _authed_raw(cfg, broker, "DELETE", f"/files/{file_id}")
+        except B2BError:
+            pass
+        return {"ok": False, "error": str(e)}
+    try:
+        _authed_raw(cfg, broker, "DELETE", f"/files/{file_id}")
+    except B2BError as e:    # kept there until it expires; the copy here is good
+        trigger.log.info("b2b %s: could not delete file %s: %s", broker["id"], file_id, e)
+    _attachment_state(con, file_id, "done", "", key="", nonce="", dir=str(dest))
+    return {"ok": True, "dir": str(dest), "files": written}
+
+
+def retry_attachments(cfg: dict[str, Any], con: sqlite3.Connection) -> list[str]:
+    """One more try at every attachment still pending; the ids that arrived."""
+    got = []
+    for r in con.execute("SELECT file_id FROM b2b_attachment WHERE state='pending' "
+                         "ORDER BY received_at").fetchall():
+        if download_attachment(cfg, con, r["file_id"]).get("ok"):
+            got.append(r["file_id"])
+    return got
+
+
+def refuse_sender(cfg: dict[str, Any], broker: dict[str, Any], sender: str) -> bool:
+    """Tell the relay this brain refuses `sender`: what they left here, messages
+    and files, is deleted there. Best effort: a relay that cannot be reached
+    still holds it until it expires, and the next blocked message tries again."""
+    try:
+        _authed(cfg, broker, "POST", "/refusals", {"from": sender})
+        return True
+    except B2BError as e:
+        trigger.log.info("b2b %s: could not refuse %s: %s", broker["id"], sender, e)
+        return False
+
+
+def _attach(cfg: dict[str, Any], con: sqlite3.Connection, broker: dict[str, Any],
+            msg: dict[str, Any], ref: dict[str, Any], ev: dict[str, Any]) -> None:
+    """Take a message's attachment now, and say in the request what came of it."""
+    try:
+        received_dir(msg["from"], msg["id"])
+    except B2BError:
+        ev["text"] += "\n\n[attachment ignored: the message id is not valid]"
+        return
+    _note_attachment(con, broker, msg, ref)
+    res = download_attachment(cfg, con, ref["id"])
+    names = ", ".join(str(n) for n in ref.get("names") or [])
+    if res.get("ok"):
+        ev["meta"]["vars"].update({"b2b_attachments_dir": res["dir"]})
+        ev["text"] += f"\n\n[attachments in {res['dir']}: {names}]"
+    elif res.get("pending"):
+        ev["text"] += f"\n\n[attachments not downloaded yet, will be retried: {names}]"
+    else:
+        ev["text"] += f"\n\n[attachments could not be taken: {res.get('error')}]"
+
+
 def _poll_broker(cfg: dict[str, Any], broker: dict[str, Any], con: sqlite3.Connection,
                  dispatch: Callable[[str], None] | None, out: dict[str, list]) -> None:
     """Read one broker (which deletes what it returns), open each envelope and
@@ -796,6 +1141,7 @@ def _poll_broker(cfg: dict[str, Any], broker: dict[str, Any], con: sqlite3.Conne
     c = _crypto()
     got = _authed(cfg, broker, "GET", "/messages")
     key = private_key(cfg)
+    refused: set[str] = set()
     for item in got.get("messages") or []:
         env = item.get("envelope") if isinstance(item, dict) else None
         if not isinstance(env, dict) or not env.get("id"):
@@ -814,6 +1160,9 @@ def _poll_broker(cfg: dict[str, Any], broker: dict[str, Any], con: sqlite3.Conne
         peer = get_peer(con, msg["from"])
         ev = message_event(msg, peer, cfg, broker)
         if is_allowed(con, msg["from"]):
+            refs = _file_refs(payload)
+            if refs:
+                _attach(cfg, con, broker, msg, refs[0], ev)
             req = trigger._new_request(con, ev, "queued", "b2b: allowed sender")
             if req:
                 out["queued"].append(req["id"])
@@ -828,6 +1177,8 @@ def _poll_broker(cfg: dict[str, Any], broker: dict[str, Any], con: sqlite3.Conne
                 out["blocked"].append(req["id"])
                 trigger.log.info("new request %s  b2b from %s via %s -> blocked: not allowed",
                                  req["id"], ev["requester_id"], broker["id"])
+            if msg["from"] not in refused and refuse_sender(cfg, broker, msg["from"]):
+                refused.add(msg["from"])
 
 
 def poll(cfg: dict[str, Any] | None = None,
@@ -845,15 +1196,17 @@ def poll(cfg: dict[str, Any] | None = None,
     if not todo:
         return {"ok": False, "error": "no enabled broker"}
     con = db()
-    out: dict[str, list] = {"queued": [], "blocked": [], "unreadable": []}
+    out: dict[str, list] = {"queued": [], "blocked": [], "unreadable": [], "downloaded": []}
     errors: dict[str, str] = {}
     for broker in todo:
         try:
             _poll_broker(cfg, broker, con, dispatch, out)
         except B2BError as e:
             errors[broker["id"]] = str(e)
+    flushed = flush_staged(cfg, con)
+    out["downloaded"] = retry_attachments(cfg, con)
     res: dict[str, Any] = {"ok": not errors, "received": len(out["queued"]) + len(out["blocked"]),
-                           **out, "errors": errors}
+                           **out, "errors": errors, "staged": flushed}
     if errors:
         res["error"] = "; ".join(f"{k}: {v}" for k, v in errors.items())
     return res
@@ -883,8 +1236,9 @@ def _in_message(r: sqlite3.Row) -> dict[str, Any]:
 
 def _out_message(r: sqlite3.Row) -> dict[str, Any]:
     return {"id": r["id"], "peer_id": r["peer_id"], "direction": "out", "text": r["text"],
-            "at": r["sent_at"], "human": bool(r["human"]), "status": "sent",
-            "request_id": r["request_id"], "broker_id": r["broker_id"]}
+            "at": r["sent_at"], "human": bool(r["human"]), "status": r["status"],
+            "request_id": r["request_id"], "broker_id": r["broker_id"],
+            "files": json.loads(r["files"] or "[]")}
 
 
 def conversations(con: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -1010,8 +1364,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name", default="")
     p = sub.add_parser("send", help="send a message to a peer")
     p.add_argument("--to", required=True, help="a peer's user id, name, or person")
-    p.add_argument("--text", required=True)
+    p.add_argument("--text", default="")
     p.add_argument("--request", default="")
+    p.add_argument("--file", action="append", default=[], help="attach a file (repeatable)")
+    p = sub.add_parser("resend", help="send a kept message again, with its files")
+    p.add_argument("id")
     sub.add_parser("poll", help="one pass: fetch, log, and run what arrived, in this process")
     args = ap.parse_args(argv)
     _ensure_crypto_env()
@@ -1069,7 +1426,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             res = {"ok": True, "allowed": list_allowed(con, True)}
     elif args.cmd == "send":
-        res = send(args.to, args.text, args.request)
+        res = send(args.to, args.text, args.request, files=args.file)
+    elif args.cmd == "resend":
+        res = resend(args.id)
     else:
         cfg, ran = load_config(), []
         tcfg = trigger.load_config()

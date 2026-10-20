@@ -40,6 +40,7 @@ pytest.importorskip("cryptography")
 
 import b2b  # noqa: E402
 import b2b_crypto as bc  # noqa: E402
+import b2b_files  # noqa: E402
 import graph  # noqa: E402
 import trigger  # noqa: E402
 from conftest import LOCALHOST, ROOT, UTF8  # noqa: E402
@@ -114,8 +115,11 @@ class Client:
         self.token = s["token"]
         return self.token
 
-    def send(self, to: str, text: str, human: bool | None = None) -> tuple[int, dict[str, Any]]:
+    def send(self, to: str, text: str, human: bool | None = None,
+             files: list[dict[str, Any]] | None = None) -> tuple[int, dict[str, Any]]:
         payload: dict[str, Any] = {"text": text, "sent_at": SENT_AT}
+        if files:
+            payload["files"] = files
         if human is not None:
             payload["human"] = human
         env = bc.seal(self.key, to, payload)
@@ -871,6 +875,151 @@ class TestBrainBrokers:
         assert res.get("ok") is False
         assert "down" in res.get("errors", {})
         assert b2b.update_broker("down", remove=True).get("ok")
+
+
+class TestBrainFiles:
+    """Attachments: sent sealed and kept, staged when the relay has no room, taken
+    and unpacked safely, and a refused sender's removed."""
+
+    @staticmethod
+    def _zip(members: dict[str, bytes]) -> bytes:
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for name, data in members.items():
+                z.writestr(name, data)
+        return buf.getvalue()
+
+    @staticmethod
+    def _upload(brain, sender: Client, zipped: bytes, tamper: bool = False) -> dict[str, Any]:
+        """Seal `zipped` and leave it for the brain; the entry a message carries."""
+        fid, key, nonce = uuid.uuid4().hex, os.urandom(32), os.urandom(12)
+        blob = bc.seal_file(key, nonce, fid, zipped)
+        sha = hashlib.sha256(blob).hexdigest()
+        st, _ = file_call(brain.base, sender, brain.me, blob, fid)
+        assert st == 201
+        if tamper:
+            sha = "0" * 64
+        return {"id": fid, "key": bc.b64(key), "nonce": bc.b64(nonce), "sha256": sha,
+                "size": len(blob), "names": ["x"]}
+
+    @staticmethod
+    def _brain_token(brain) -> str:
+        cfg = b2b.load_config()
+        return b2b.login(cfg, b2b.get_broker(cfg, BROKER_A))
+
+    def test_setup(self, brain, tmp_path):
+        brain.src = tmp_path / "src"
+        brain.src.mkdir()
+        (brain.src / "notes.txt").write_text("hello", encoding=UTF8)
+        (brain.src / "big1.bin").write_bytes(os.urandom(1_800))
+        (brain.src / "big2.bin").write_bytes(os.urandom(1_800))
+        (brain.src / "big3.bin").write_bytes(os.urandom(1_800))
+        brain.peer.login()
+
+    def test_a_message_with_a_file_is_sealed_and_the_file_downloads_and_opens(self, brain):
+        res = b2b.send(brain.ana, "see this", files=[str(brain.src / "notes.txt")])
+        assert res.get("ok") and res["staged"] is False, res
+        brain.sent_id = res["id"]
+        [msg] = brain.peer.read()
+        ref = msg["files"][0]
+        st, blob, _ = raw(brain.base, "GET", f"/files/{ref['id']}", token=brain.peer.token)
+        assert st == 200 and hashlib.sha256(blob).hexdigest() == ref["sha256"]
+        zipped = bc.open_file(bc.unb64(ref["key"]), bc.unb64(ref["nonce"]), ref["id"], blob)
+        out = b2b_files.extract_zip(zipped, brain.src.parent / "opened")
+        assert out == ["notes.txt"]
+        assert raw(brain.base, "DELETE", f"/files/{ref['id']}", token=brain.peer.token)[0] == 200
+
+    def test_what_was_sent_is_kept_for_sending_again(self, brain):
+        d = b2b.sent_dir(brain.peer.id, brain.sent_id)
+        assert (d / "attachments.zip").is_file() and (d / "message.json").is_file()
+        row = next(s for s in b2b.list_sent(brain.con) if s["id"] == brain.sent_id)
+        assert row["status"] == "sent" and json.loads(row["files"]) == ["notes.txt"]
+
+    def test_a_full_box_leaves_the_message_staged_not_failed(self, brain):
+        ok1 = b2b.send(brain.ana, "one", files=[str(brain.src / "big1.bin")])
+        ok2 = b2b.send(brain.ana, "two", files=[str(brain.src / "big2.bin")])
+        full = b2b.send(brain.ana, "three", files=[str(brain.src / "big3.bin")])
+        assert ok1["staged"] is False and ok2["staged"] is False
+        assert full.get("ok") and full["staged"] is True and "507" in full["reason"], full
+        brain.staged_id = full["id"]
+        row = next(s for s in b2b.list_sent(brain.con) if s["id"] == full["id"])
+        assert row["status"] == "staged"
+
+    def test_nothing_of_a_staged_message_reached_the_peer(self, brain):
+        msgs = brain.peer.read()
+        assert [m["text"] for m in msgs] == ["one", "two"]
+        brain.first_two = [m["files"][0]["id"] for m in msgs]
+
+    def test_once_there_is_room_a_pass_sends_it_and_only_once(self, brain):
+        assert b2b.flush_staged(b2b.load_config(), brain.con)["staged"] == [brain.staged_id]
+        for fid in brain.first_two:      # the peer takes the first two: the room is back
+            assert raw(brain.base, "DELETE", f"/files/{fid}", token=brain.peer.token)[0] == 200
+        res = b2b.flush_staged(b2b.load_config(), brain.con)
+        assert res == {"sent": [brain.staged_id], "staged": [], "failed": []}
+        assert [m["text"] for m in brain.peer.read()] == ["three"]
+        assert b2b.flush_staged(b2b.load_config(), brain.con) == {
+            "sent": [], "staged": [], "failed": []}
+
+    def test_an_attachment_from_an_allowed_peer_is_taken_and_unpacked(self, brain):
+        ref = self._upload(brain, brain.peer, self._zip({"a.txt": b"hi", "sub/b.txt": b"yo"}))
+        brain.peer.send(brain.me, "files for you", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert res.get("ok") and len(res["queued"]) == 1, res
+        req = trigger.get_request(brain.con, res["queued"][0])
+        mid = req["event_id"]
+        d = b2b.received_dir(brain.peer.id, mid)
+        assert (d / "a.txt").read_text(encoding=UTF8) == "hi"
+        assert (d / "sub" / "b.txt").read_text(encoding=UTF8) == "yo"
+        assert str(d) in req["text"]
+        assert req["meta"]["vars"]["b2b_attachments_dir"] == str(d)
+
+    def test_and_it_is_gone_from_the_relay(self, brain):
+        row = brain.con.execute("SELECT * FROM b2b_attachment").fetchone()
+        assert row["state"] == "done" and row["key"] == ""
+        assert raw(brain.base, "GET", f"/files/{row['file_id']}",
+                   token=self._brain_token(brain))[0] == 404
+
+    @pytest.mark.parametrize("label,members", [
+        ("zip-slip", {"../evil.txt": b"x"}),
+        ("absolute", {"/tmp/evil.txt": b"x"}),
+    ])
+    def test_an_archive_that_would_harm_is_refused_and_still_removed_from_the_relay(
+            self, brain, label, members):
+        ref = self._upload(brain, brain.peer, self._zip(members))
+        brain.peer.send(brain.me, f"bad {label}", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        req = trigger.get_request(brain.con, res["queued"][0])
+        assert "could not be taken" in req["text"]
+        row = brain.con.execute("SELECT * FROM b2b_attachment WHERE file_id=?",
+                                (ref["id"],)).fetchone()
+        assert row["state"] == "failed" and row["key"] == ""
+        assert not b2b.received_dir(brain.peer.id, req["event_id"]).exists()
+        assert raw(brain.base, "GET", f"/files/{ref['id']}",
+                   token=self._brain_token(brain))[0] == 404
+
+    def test_a_file_that_does_not_match_the_hash_in_the_message_is_refused(self, brain):
+        ref = self._upload(brain, brain.peer, self._zip({"a.txt": b"hi"}), tamper=True)
+        brain.peer.send(brain.me, "wrong hash", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert "could not be taken" in trigger.get_request(brain.con, res["queued"][0])["text"]
+
+    def test_a_blocked_sender_is_refused_at_the_relay_with_everything_they_left(self, brain):
+        ref = self._upload(brain, brain.stranger, self._zip({"a.txt": b"hi"}))
+        brain.stranger.send(brain.me, "buy", files=[ref])
+        # a second file the poll will not have a message for: refusal removes it too
+        extra = self._upload(brain, brain.stranger, self._zip({"b.txt": b"hi"}))
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert len(res["blocked"]) == 1 and not res["queued"]
+        tok = self._brain_token(brain)
+        assert raw(brain.base, "GET", f"/files/{ref['id']}", token=tok)[0] == 404
+        assert raw(brain.base, "GET", f"/files/{extra['id']}", token=tok)[0] == 404
+        assert not b2b.attachments_root().joinpath(brain.stranger.id).exists()
+
+    def test_resend_sends_the_kept_files_as_a_new_message(self, brain):
+        res = b2b.resend(brain.sent_id)
+        assert res.get("ok") and res["id"] != brain.sent_id and res["files"] == ["notes.txt"], res
 
 
 class TestBrainDisconnecting:
