@@ -779,8 +779,18 @@ def b2b_allowed(data: m.B2BAllowed = body(m.B2BAllowed)):
              description="Sealed here, to the peer's key and signed by this brain's, then "
                          "left on the peer's broker, and logged.")
 def b2b_send(data: m.B2BSend = body(m.B2BSend)):
+    files, bad = [], ""
+    base = documents.root("attachments").resolve()
+    for raw in (data.files if isinstance(data.files, list) else [])[:b2b.b2b_files.FILES_MAX]:
+        p = (base / str(raw)).resolve()
+        if base not in p.parents or not p.is_file():
+            bad = f"{raw} is not a file saved by /api/agent-attach"
+            break
+        files.append(str(p))
+    if bad:
+        return reply({"ok": False, "error": bad})
     return reply(b2b.send(clip(data.to, 100), clip(data.text, b2b.TEXT_MAX),
-                          human=data.human is True))
+                          human=data.human is True, files=files or None))
 
 
 # ------------------------------------------------------------------ agents

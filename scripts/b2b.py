@@ -1278,13 +1278,51 @@ def conversations(con: sqlite3.Connection) -> list[dict[str, Any]]:
     return out
 
 
-def thread(con: sqlite3.Connection, peer_id: str, limit: int = 500) -> list[dict[str, Any]]:
-    """Every message with one peer, both ways, oldest first: the newest `limit`."""
+THREAD_PAGE = 20          # what the Messages chat is given at a time
+
+
+def _attachments_of(con: sqlite3.Connection, peer_id: str) -> dict[str, dict[str, Any]]:
+    """What came with each message from `peer_id`, by message id."""
+    out = {}
+    for r in con.execute("SELECT message_id, names, state, error, dir FROM b2b_attachment "
+                         "WHERE peer_id=?", (peer_id,)):
+        out[r["message_id"]] = {"names": json.loads(r["names"] or "[]"), "state": r["state"],
+                                "error": r["error"], "dir": r["dir"]}
+    return out
+
+
+def thread(con: sqlite3.Connection, peer_id: str, limit: int = 500,
+           before: str = "") -> list[dict[str, Any]]:
+    """Messages with one peer, both ways, oldest first: the newest `limit`, or
+    the newest `limit` sent before the time `before`. A message with files says
+    what they are (`files`: the names and, for a received one, where they were
+    unpacked and whether they arrived)."""
+    return thread_page(con, peer_id, limit, before)["messages"]
+
+
+def thread_page(con: sqlite3.Connection, peer_id: str, limit: int = THREAD_PAGE,
+                before: str = "") -> dict[str, Any]:
+    """One page of a conversation, for a chat that shows the latest and reads
+    back on demand: `messages` oldest first, `has_more` when older ones exist,
+    and `next_before`, the time to pass as `before` for the page behind this one.
+    Messages sharing the oldest time are never split across two pages."""
+    got = _attachments_of(con, peer_id)
     msgs = [_in_message(r) for r in _received(con, peer_id)]
     msgs += [_out_message(r) for r in con.execute(
         "SELECT * FROM b2b_sent WHERE peer_id=?", (peer_id,))]
+    for m in msgs:
+        if m["direction"] == "in" and m["id"] in got:
+            m["files"] = got[m["id"]]
+    if before:
+        msgs = [m for m in msgs if m["at"] < before]
     msgs.sort(key=lambda m: m["at"])
-    return msgs[-max(1, min(2000, limit)):]
+    cut = len(msgs) - max(1, min(2000, limit))
+    while 0 < cut < len(msgs) and msgs[cut - 1]["at"] == msgs[cut]["at"]:
+        cut -= 1
+    cut = max(cut, 0)
+    page = msgs[cut:]
+    return {"messages": page, "has_more": cut > 0,
+            "next_before": page[0]["at"] if page and cut > 0 else ""}
 
 
 def status_payload() -> dict[str, Any]:

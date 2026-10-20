@@ -1022,6 +1022,47 @@ class TestBrainFiles:
         assert res.get("ok") and res["id"] != brain.sent_id and res["files"] == ["notes.txt"], res
 
 
+class TestBrainThreadPages:
+    """The chat is given the latest 20 and reads back by date."""
+
+    def test_setup(self, brain):
+        brain.pid = Client(brain.base).id
+        for i in range(45):
+            at = f"2026-10-01T00:{i // 2:02d}:00+00:00"       # two messages share each minute
+            brain.con.execute("INSERT INTO b2b_sent(id, peer_id, text, sent_at, broker_id) "
+                              "VALUES(?,?,?,?,?)", (f"{i:032x}", brain.pid, f"m{i}", at, BROKER_A))
+        brain.con.commit()
+
+    def test_the_first_page_is_the_latest_twenty_oldest_first(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid)
+        # m24 and m25 share a minute, so the page takes both: 21, not 20
+        assert [m["text"] for m in page["messages"]] == [f"m{i}" for i in range(24, 45)]
+        assert page["has_more"] is True
+
+    def test_the_cursor_walks_back_without_a_gap_or_a_repeat(self, brain):
+        seen: list[str] = []
+        before, pages = "", 0
+        while True:
+            page = b2b.thread_page(brain.con, brain.pid, before=before)
+            seen = [m["text"] for m in page["messages"]] + seen
+            pages += 1
+            if not page["has_more"]:
+                break
+            before = page["next_before"]
+        assert seen == [f"m{i}" for i in range(45)]
+        assert pages == 3
+
+    def test_messages_sharing_a_time_are_never_split_across_pages(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid, limit=3)
+        older = b2b.thread_page(brain.con, brain.pid, limit=3, before=page["next_before"])
+        assert not {m["id"] for m in page["messages"]} & {m["id"] for m in older["messages"]}
+        assert page["messages"][0]["at"] != older["messages"][-1]["at"]
+
+    def test_a_conversation_with_nothing_older_has_no_cursor(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid, limit=100)
+        assert page["has_more"] is False and page["next_before"] == ""
+
+
 class TestBrainDisconnecting:
     def test_a_peer_disconnects_and_the_row_is_kept(self, brain):
         assert b2b.remove_peer(brain.con, brain.peer.id).get("ok")
