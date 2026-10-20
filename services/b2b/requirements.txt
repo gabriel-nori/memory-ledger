@@ -6,3 +6,6 @@ fastapi==0.141.1
 uvicorn==0.53.0
 # X25519 + HKDF + AES-GCM for the sealed messages and the wrapped private keys.
 cryptography==50.0.2
+# PostgreSQL driver, used only when all five B2B_DB_* variables are set; the
+# relay falls back to SQLite when it is missing or the connection fails.
+psycopg[binary]==3.3.6

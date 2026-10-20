@@ -18,6 +18,7 @@ in file order. The state they share lives in the module-scoped `brain` fixture.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -27,6 +28,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,6 +51,8 @@ SENT_AT = "2026-09-30T00:00:00+00:00"
 ANA = "Ana Souza"
 BROKER_A = "team-a-relay"
 BROKER_B = "team-b-relay"
+FILE_MAX_TEST = 2_000            # bytes: the relay's limits, lowered for the tests
+QUOTA_TEST = 5_000
 CLAUDE_CALLS = "claude-calls.jsonl"
 SCRIPT_LOG = "b2b-script.log"
 SCRIPT_NAME = "b2b-note.sh"
@@ -123,11 +127,27 @@ class Client:
                 for m in r.get("messages") or []]
 
 
-def _start_relay(log: Path) -> tuple[subprocess.Popen, str, Any]:
+def raw(base: str, method: str, path: str, data: bytes | None = None,
+        token: str = "") -> tuple[int, bytes, dict[str, str]]:
+    """One call with a raw body: (status, body, headers)."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read(), {k.lower(): v for k, v in r.headers.items()}
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), {k.lower(): v for k, v in e.headers.items()}
+
+
+def _start_relay(log: Path, env: dict[str, str] | None = None) -> tuple[subprocess.Popen, str, Any]:
     port = _free_port()
     out = open(log, "wb")
+    base_env = {k: v for k, v in os.environ.items() if not k.startswith("B2B_DB_")}
+    base_env["B2B_SQLITE_PATH"] = str(log.with_suffix(".db"))
+    base_env.update({"B2B_FILE_MAX": str(FILE_MAX_TEST), "B2B_QUOTA_BYTES": str(QUOTA_TEST)})
+    base_env.update(env or {})
     proc = subprocess.Popen([sys.executable, str(RELAY), "--port", str(port)],
-                            stdout=out, stderr=subprocess.STDOUT)
+                            stdout=out, stderr=subprocess.STDOUT, env=base_env)
     base = f"http://{LOCALHOST}:{port}"
     deadline = time.time() + RELAY_START_TIMEOUT_S
     while time.time() < deadline:
@@ -311,6 +331,162 @@ class TestRelay:
         b.login()
         assert [(m["from"], m["text"]) for m in b.read()] == [(a.id, "hi b")]
         assert b.read() == []
+
+
+def file_call(base: str, sender: Client, to: str, data: bytes, fid: str | None = None,
+              sha: str | None = None) -> tuple[int, dict[str, Any]]:
+    """Upload `data` as a file from `sender` to `to`."""
+    fid = fid or uuid.uuid4().hex
+    sha = sha or hashlib.sha256(data).hexdigest()
+    st, body, _ = raw(base, "POST", f"/files?id={fid}&from={sender.id}&to={to}&sha256={sha}",
+                      data)
+    return st, {**json.loads(body or b"{}"), "_id": fid}
+
+
+class TestRelayFiles:
+    """Sealed files on the relay: upload, download, delete, quota, refusal."""
+
+    def test_the_recipient_downloads_then_deletes_it(self, base):
+        a, b = Client(base), Client(base)
+        st, up = file_call(base, a, b.id, b"sealed-bytes")
+        assert (st, up["stored"]) == (201, True)
+        b.login()
+        st, body, hdr = raw(base, "GET", f"/files/{up['_id']}", token=b.token)
+        assert (st, body) == (200, b"sealed-bytes")
+        assert hdr["x-sha256"] == hashlib.sha256(b"sealed-bytes").hexdigest()
+        assert raw(base, "DELETE", f"/files/{up['_id']}", token=b.token)[0] == 200
+        assert raw(base, "GET", f"/files/{up['_id']}", token=b.token)[0] == 404
+
+    def test_a_retried_upload_is_the_same_file_not_a_second_one(self, base):
+        a, b = Client(base), Client(base)
+        fid = uuid.uuid4().hex
+        assert file_call(base, a, b.id, b"x" * 1000, fid)[0] == 201
+        st, up = file_call(base, a, b.id, b"x" * 1000, fid)
+        assert (st, up["stored"]) == (200, False)
+        assert file_call(base, a, b.id, b"y" * 10, fid)[0] == 409
+
+    def test_nobody_else_can_read_or_delete_it(self, base):
+        a, b, c = Client(base), Client(base), Client(base)
+        fid = file_call(base, a, b.id, b"secret")[1]["_id"]
+        for who in (a, c):
+            who.login()
+            assert raw(base, "GET", f"/files/{fid}", token=who.token)[0] == 404
+            assert raw(base, "DELETE", f"/files/{fid}", token=who.token)[0] == 404
+        assert raw(base, "GET", f"/files/{fid}")[0] == 401
+
+    def test_a_body_that_does_not_match_its_hash_is_refused(self, base):
+        a, b = Client(base), Client(base)
+        assert file_call(base, a, b.id, b"data", sha="0" * 64)[0] == 400
+
+    def test_an_over_large_file_is_refused_not_cut(self, base):
+        a, b = Client(base), Client(base)
+        assert file_call(base, a, b.id, b"x" * (FILE_MAX_TEST + 1))[0] == 413
+
+    def test_past_the_quota_the_upload_is_refused_until_something_is_downloaded(self, base):
+        a, b = Client(base), Client(base)
+        chunk = b"q" * 1_800
+        ids = [file_call(base, a, b.id, chunk + bytes([i]))[1]["_id"] for i in range(2)]
+        assert file_call(base, a, b.id, chunk + b"c")[0] == 507         # 3 x 1,801 > 5,000
+        b.login()
+        assert raw(base, "DELETE", f"/files/{ids[0]}", token=b.token)[0] == 200
+        assert file_call(base, a, b.id, chunk + b"d")[0] == 201
+
+    def test_refusing_a_sender_deletes_their_messages_and_files_only(self, base):
+        a, b, c = Client(base), Client(base), Client(base)
+        fa = file_call(base, a, b.id, b"from a")[1]["_id"]
+        fc = file_call(base, c, b.id, b"from c")[1]["_id"]
+        a.send(b.id, "hi")
+        b.login()
+        st, r = call(base, "POST", "/refusals", {"from": a.id}, token=b.token)
+        assert (st, r["messages"], r["files"]) == (200, 1, 1)
+        assert raw(base, "GET", f"/files/{fa}", token=b.token)[0] == 404
+        assert raw(base, "GET", f"/files/{fc}", token=b.token)[0] == 200
+        assert b.read() == []
+
+    def test_refusing_needs_a_session_and_a_user_id(self, base):
+        a, b = Client(base), Client(base)
+        assert call(base, "POST", "/refusals", {"from": a.id})[0] == 401
+        b.login()
+        assert call(base, "POST", "/refusals", {"from": "nope"}, token=b.token)[0] == 400
+
+
+class TestRelayDatabase:
+    """SQLite by default and when PostgreSQL is incomplete or fails."""
+
+    def test_sqlite_is_the_default(self, base):
+        assert call(base, "GET", "/health")[1]["database"] == "sqlite"
+
+    @pytest.mark.parametrize("label, env", [
+        ("a variable missing", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p", "B2B_DB_NAME": "d",
+                                "B2B_DB_URL": "127.0.0.1"}),
+        ("a server that is not there", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p",
+                                        "B2B_DB_NAME": "d", "B2B_DB_URL": "127.0.0.1",
+                                        "B2B_DB_PORT": "1"}),
+        ("a port that is not a number", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p",
+                                         "B2B_DB_NAME": "d", "B2B_DB_URL": "127.0.0.1",
+                                         "B2B_DB_PORT": "x"}),
+    ])
+    def test_falls_back_to_sqlite(self, tmp_path, label, env):
+        proc, url, out = _start_relay(tmp_path / "fb.log", env)
+        try:
+            health = call(url, "GET", "/health")[1]
+            assert health["database"] == "sqlite"
+            a, b = Client(url), Client(url)
+            assert a.send(b.id, "still works")[0] == 202
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+
+    def test_messages_survive_a_restart(self, tmp_path):
+        a_key, a_id = bc.generate()
+        b = None
+        log = tmp_path / "keep.log"
+        proc, url, out = _start_relay(log)
+        try:
+            b = Client(url)
+            a = Client(url)
+            assert a.send(b.id, "kept")[0] == 202
+            assert file_call(url, a, b.id, b"kept file")[0] == 201
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+        proc, url, out = _start_relay(log)     # same SQLite file
+        try:
+            b.base = url
+            b.login()
+            assert [m["text"] for m in b.read()] == ["kept"]
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+
+    @pytest.mark.skipif(not all(os.environ.get(k) for k in (
+        "B2B_TEST_PG_USER", "B2B_TEST_PG_PASSWORD", "B2B_TEST_PG_NAME", "B2B_TEST_PG_HOST",
+        "B2B_TEST_PG_PORT")), reason="set B2B_TEST_PG_{USER,PASSWORD,NAME,HOST,PORT} to run "
+                                     "against a real PostgreSQL")
+    def test_postgresql_when_all_five_are_set(self, tmp_path):
+        env = {"B2B_DB_USER": os.environ["B2B_TEST_PG_USER"],
+               "B2B_DB_PASSWORD": os.environ["B2B_TEST_PG_PASSWORD"],
+               "B2B_DB_NAME": os.environ["B2B_TEST_PG_NAME"],
+               "B2B_DB_URL": os.environ["B2B_TEST_PG_HOST"],
+               "B2B_DB_PORT": os.environ["B2B_TEST_PG_PORT"]}
+        proc, url, out = _start_relay(tmp_path / "pg.log", env)
+        try:
+            assert call(url, "GET", "/health")[1]["database"] == "postgresql"
+            a, b = Client(url), Client(url)
+            fid = file_call(url, a, b.id, b"pg bytes")[1]["_id"]
+            a.send(b.id, "via pg")
+            b.login()
+            assert [m["text"] for m in b.read()] == ["via pg"]
+            assert raw(url, "GET", f"/files/{fid}", token=b.token)[1] == b"pg bytes"
+            assert call(url, "POST", "/refusals", {"from": a.id}, token=b.token)[0] == 200
+            assert raw(url, "GET", f"/files/{fid}", token=b.token)[0] == 404
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
 
 
 # ================================================================ the brain
