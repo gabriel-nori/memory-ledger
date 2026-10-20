@@ -27,14 +27,14 @@ def make_zip(members: dict[str, bytes], symlink: str = "") -> bytes:
 
 class TestZip:
     def test_files_round_trip_flat(self, tmp_path):
-        (tmp_path / "a.txt").write_text("one")
+        (tmp_path / "a.txt").write_text("one", encoding="utf-8")
         (tmp_path / "d").mkdir()
-        (tmp_path / "d" / "a.txt").write_text("two")
+        (tmp_path / "d" / "a.txt").write_text("two", encoding="utf-8")
         data, names = zip_files([str(tmp_path / "a.txt"), str(tmp_path / "d" / "a.txt")])
         assert names == ["a.txt", "a-2.txt"]
         out = tmp_path / "out"
         assert sorted(extract_zip(data, out)) == ["a-2.txt", "a.txt"]
-        assert (out / "a.txt").read_text() == "one" and (out / "a-2.txt").read_text() == "two"
+        assert (out / "a.txt").read_text(encoding="utf-8") == "one" and (out / "a-2.txt").read_text(encoding="utf-8") == "two"
 
     @pytest.mark.parametrize("paths", [[], ["/no/such/file"]])
     def test_nothing_or_not_a_file_is_refused(self, paths):
@@ -42,7 +42,7 @@ class TestZip:
             zip_files(paths)
 
     def test_too_many_files_are_refused(self, tmp_path):
-        (tmp_path / "f").write_text("x")
+        (tmp_path / "f").write_text("x", encoding="utf-8")
         with pytest.raises(BadArchive):
             zip_files([str(tmp_path / "f")] * (b2b_files.FILES_MAX + 1))
 
