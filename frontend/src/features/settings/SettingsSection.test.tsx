@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { SettingsSection } from "./SettingsSection";
 import { renderApp } from "@/test/utils";
 import { failWith, resetWrites, server, writes } from "@/test/server";
 import { doctorFixture, settingsFixture, statusFixture } from "@/test/fixtures";
+
+// Every test mounts the whole page, which fires a dozen requests at the mock
+// server (~500ms locally even for a one-assert test). The multi-step flows take
+// ~1.4s here and ~5.3s on a CI runner, right at the 5s default, so this file
+// gets more headroom rather than a flake.
+vi.setConfig({ testTimeout: 15_000 });
 
 beforeEach(resetWrites);
 
