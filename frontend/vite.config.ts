@@ -40,6 +40,10 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     css: false,
+    // Node 22+ ships its own experimental localStorage; without a backing file
+    // it is an empty getter that shadows jsdom's, so window.localStorage is
+    // undefined in every test. Turn it off so jsdom's applies.
+    poolOptions: { forks: { execArgv: ["--no-experimental-webstorage"] } },
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
