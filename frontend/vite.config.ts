@@ -42,8 +42,16 @@ export default defineConfig({
     css: false,
     // Node 22+ ships its own experimental localStorage; without a backing file
     // it is an empty getter that shadows jsdom's, so window.localStorage is
-    // undefined in every test. Turn it off so jsdom's applies.
-    poolOptions: { forks: { execArgv: ["--no-experimental-webstorage"] } },
+    // undefined in every test. Turn it off so jsdom's applies. Older Node
+    // (the CI runs 20) rejects the flag and kills the worker, so pass it only
+    // where it exists.
+    poolOptions: {
+      forks: {
+        execArgv: process.allowedNodeEnvironmentFlags.has("--experimental-webstorage")
+          ? ["--no-experimental-webstorage"]
+          : [],
+      },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
