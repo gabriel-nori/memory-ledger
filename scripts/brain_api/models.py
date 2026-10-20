@@ -385,6 +385,8 @@ class B2BSend(Body):
     human: Any = Field(False, description="A person typed it (the Messages chat). Sealed "
                                           "with the text, so the peer sees it; anything "
                                           "else is shown as automated.")
+    files: Any = Field(None, description="Paths returned by `/api/agent-attach` (names under "
+                                         "`<home>/attachments/`), sent with the message.")
 
 
 # ------------------------------------------------------------------ agents

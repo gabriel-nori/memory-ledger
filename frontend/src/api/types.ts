@@ -1196,8 +1196,13 @@ export interface B2BMessage {
   at: string;
   /** A person typed it, rather than a session or a script. */
   human: boolean;
-  /** `sent` for ours; the request's status for theirs. */
+  /** Ours: `sent`, `staged` (the peer's box is full or the relay is out of reach; tried again
+   * on every poll) or `failed`. Theirs: the request's status. */
   status: string;
+  /** Names of the files that came with it. */
+  files?: string[];
+  /** Theirs, with files: whether they were downloaded (`pending` is retried) and where. */
+  attachment?: { state: "pending" | "done" | "failed"; error: string; dir: string };
   /** Ours: the session it was sent for, if any. Theirs: the request it became. */
   request_id: string;
   received_at?: string;
@@ -1221,7 +1226,11 @@ export interface B2BConversations extends Envelope {
 
 export interface B2BThread extends Envelope {
   peer_id: string;
+  /** Oldest first: the latest page, or the one before `before`. */
   messages: B2BMessage[];
+  /** Older messages exist; pass `next_before` as `before` to read them. */
+  has_more: boolean;
+  next_before: string;
 }
 
 export interface B2BRuntime {
@@ -1256,6 +1265,9 @@ export interface B2BSendResult extends Envelope {
   broker: string;
   sent_at: string;
   human?: boolean;
+  /** True when the peer cannot take it yet; it goes on its own at a later poll. */
+  staged?: boolean;
+  reason?: string;
 }
 
 // ------------------------------------------------------------------ agents

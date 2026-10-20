@@ -1,12 +1,12 @@
-"""B2B (Brain 2 Brain): an in-memory relay that lets one brain leave a message
+"""B2B (Brain 2 Brain): a relay that lets one brain leave a message, and files,
 for another (services/b2b/README.md, docs/b2b.md).
 
 A user's id **is** their public key: an X25519 public key, 32 bytes, as
 unpadded base64url (43 characters). The brain makes the key pair itself and the
 private key never leaves it. The relay keeps no accounts: it does not know or
-care whether an id ever logged in. In memory, it holds only the retrieval
-tokens it handed out (as digests, for an hour) and the sealed messages waiting
-to be read.
+care whether an id ever logged in. It holds the retrieval tokens it handed out
+(in memory, as digests, for an hour) and, in its database (`b2b_store.py`:
+PostgreSQL or SQLite), the sealed messages and files waiting to be read.
 
 * `POST /challenge {user_id}` returns a random secret sealed to that id. Only
   the holder of the private key can open it.
@@ -20,9 +20,16 @@ to be read.
 * `GET /messages` (bearer) returns every envelope waiting for the caller and
   deletes them from the relay. A message is read once, and an emptied mailbox
   is forgotten.
+* `POST /files?id&from&to&sha256` (the body is the sealed file, raw bytes) leaves
+  a file for `to`, up to `FILE_MAX` each, `QUOTA_BYTES` waiting per recipient and `TOTAL_BYTES`
+  on the relay, with at most `UPLOADS_MAX` uploads at once (503).
+  `GET /files/{id}` (bearer) returns it to its recipient and `DELETE /files/{id}`
+  removes it once the recipient has checked the hash. One nobody downloads goes
+  after `FILE_TTL_S`, an unread message after `MESSAGE_TTL_S`.
+* `POST /refusals {from}` (bearer) is a recipient refusing a sender: every
+  message and file that sender left for the caller is deleted.
 
-Everything lives in this process's memory. There is no database: when the
-relay stops, every session and message on it is gone, by design.
+Sessions are in this process's memory: a restart only makes brains log in again.
 
     python3 services/b2b/serve_b2b.py [--host 127.0.0.1] [--port 8780]
 """
@@ -33,6 +40,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -46,15 +54,26 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from fastapi import Body, FastAPI, Header
-from fastapi.responses import JSONResponse
+from b2b_store import Db, Mailbox
+from fastapi import Body, FastAPI, Header, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, Response
 
-VERSION = "3.0.0"
+VERSION = "4.0.0"
 
 # Caps that keep one process's memory bounded. Over them is refused, never
 # truncated: a message cut short is a different message.
 ENVELOPE_MAX = 40_000           # characters of base64 ciphertext: ~16,000 of text, sealed
 QUEUE_MAX = 500
+# bytes of one sealed file, and of files waiting for one recipient; the
+# environment lowers them for tests, and raises them for a bigger relay
+FILE_MAX = int(os.environ.get("B2B_FILE_MAX") or 50 * 1024 * 1024)
+QUOTA_BYTES = int(os.environ.get("B2B_QUOTA_BYTES") or 500 * 1024 * 1024)
+FILE_TTL_S = 7 * 86_400         # a file nobody downloads is deleted after this
+MESSAGE_TTL_S = int(os.environ.get("B2B_MESSAGE_TTL_S") or 30 * 86_400)  # and a message
+# files waiting on the whole relay, and uploads in flight (each is buffered in memory)
+TOTAL_BYTES = int(os.environ.get("B2B_TOTAL_BYTES") or 20 * 1024 * 1024 * 1024)
+UPLOADS_MAX = int(os.environ.get("B2B_UPLOADS_MAX") or 8)
 MAILBOXES_MAX = 10_000          # recipients with unread messages
 CHALLENGES_PER_USER = 5
 CHALLENGE_TTL_S = 120
@@ -63,6 +82,7 @@ SESSIONS_PER_USER = 20
 
 ID_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 MSG_ID_RE = re.compile(r"[0-9a-f]{32}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 CHALLENGE_INFO = b"b2b/v2/challenge"
 
 
@@ -117,14 +137,13 @@ class Unauthorized(Exception):
 
 
 class Store:
-    """Open challenges, retrieval tokens and waiting messages, in memory,
-    behind one lock. No accounts: an id exists here only while it holds a
-    token or has mail."""
+    """Open challenges and retrieval tokens, in memory behind one lock, and the
+    waiting messages and files, in the database. No accounts: an id exists here
+    only while it holds a token or has mail."""
 
-    def __init__(self) -> None:
-        """An empty relay."""
-        # recipient id -> sealed envelopes waiting for it, oldest first
-        self._mailboxes: dict[str, list[dict[str, Any]]] = {}
+    def __init__(self, mailbox: Mailbox) -> None:
+        """A relay over `mailbox`, with no sessions."""
+        self.mail = mailbox
         # challenge_id -> (user_id, digest of the secret, expires at)
         self._challenges: dict[str, tuple[str, bytes, float]] = {}
         # digest of the token -> (user_id, expires at)
@@ -189,17 +208,9 @@ class Store:
         if env["from"] != sender:
             raise ValueError("from must match envelope.from")
         sent_at = now_iso()
-        with self._lock:
-            box = self._mailboxes.get(to)
-            if box is None:
-                if len(self._mailboxes) >= MAILBOXES_MAX:
-                    raise OverflowError("the relay is full")
-                box = self._mailboxes[to] = []
-            if len(box) >= QUEUE_MAX:
-                raise OverflowError(to)
-            if any(m["id"] == env["id"] for m in box):
-                raise ValueError("a message with this id is already waiting")
-            box.append({"id": env["id"], "from": sender, "at": sent_at, "envelope": env})
+        self.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
+        self.mail.put_message(env["id"], to, sender, sent_at, json.dumps(env), QUEUE_MAX,
+                              MAILBOXES_MAX)
         return {"id": env["id"], "to": to, "sent_at": sent_at}
 
     def fetch(self, token: str) -> list[dict[str, Any]]:
@@ -207,8 +218,9 @@ class Store:
         from the relay. Only the ones returned are deleted, so a message that
         arrives during the call waits for the next one."""
         user_id = self.whoami(token)
-        with self._lock:
-            return self._mailboxes.pop(user_id, [])
+        self.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
+        return [{"id": mid, "from": sender, "at": at, "envelope": json.loads(env)}
+                for mid, sender, at, env in self.mail.take_messages(user_id)]
 
 
 def _clean_envelope(env: Any) -> dict[str, str]:
@@ -241,13 +253,15 @@ def _clean_envelope(env: Any) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------- http
-STORE = Store()
+_uploading = 0
+DB = Db()
+STORE = Store(Mailbox(DB))
 app = FastAPI(title="B2B — Brain 2 Brain", version=VERSION,
               description="An in-memory relay for messages between brains. A user id is "
                           "an X25519 public key; a challenge proves the private key and "
                           "opens a one-hour session to read your mail. Anyone can send "
-                          "to an id: messages arrive sealed by the sender and are "
-                          "deleted once read. No accounts, and nothing is written to disk.")
+                          "to an id: messages and files arrive sealed by the sender and "
+                          "are deleted once read. No accounts.")
 
 
 def _err(status: int, error: str) -> JSONResponse:
@@ -269,7 +283,7 @@ def _bearer(authorization: str) -> str:
 @app.get("/health", summary="Is the relay up")
 def health() -> dict[str, Any]:
     """Liveness only: it says nothing about who is registered."""
-    return {"ok": True, "service": "b2b", "version": VERSION}
+    return {"ok": True, "service": "b2b", "version": VERSION, "database": DB.backend}
 
 
 @app.post("/challenge", summary="Get a challenge sealed to your id", response_model=None)
@@ -338,3 +352,112 @@ def get_messages(authorization: str = Header(default="")) -> JSONResponse | dict
     except Unauthorized:
         return _err(401, "no valid retrieval token: answer a new challenge")
     return {"ok": True, "messages": messages}
+
+
+def _recipient(authorization: str) -> str | JSONResponse:
+    """The id behind the request's bearer token, or the 401 to return."""
+    tok = _bearer(authorization)
+    if not tok:
+        return _err(401, "send Authorization: Bearer <retrieval token>")
+    try:
+        return STORE.whoami(tok)
+    except Unauthorized:
+        return _err(401, "no valid retrieval token: answer a new challenge")
+
+
+@app.post("/files", summary="Leave a sealed file", response_model=None)
+async def post_files(request: Request, id: str = "",
+                     sha256: str = "") -> JSONResponse | dict[str, Any]:
+    """The body is the sealed file, raw bytes. Query: `id` (32 hex, chosen by the
+    sender so a retry is the same file), `from`, `to`, and `sha256` (hex) of the
+    body. Refused, never cut, when over `FILE_MAX` (413) or when it would take
+    the recipient past `QUOTA_BYTES` (507), the relay past `TOTAL_BYTES` (507), or
+    when `UPLOADS_MAX` uploads are already running (503)."""
+    q = request.query_params
+    sender, to = q.get("from", ""), q.get("to", "")
+    if not (ID_RE.fullmatch(sender) and ID_RE.fullmatch(to)):
+        return _err(400, "from and to must be user ids (X25519 public keys)")
+    if not MSG_ID_RE.fullmatch(id) or not SHA256_RE.fullmatch(sha256):
+        return _err(400, "id must be 32 hex characters and sha256 64")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > FILE_MAX:
+        return _err(413, f"a file is at most {FILE_MAX} bytes")
+    global _uploading
+    if _uploading >= UPLOADS_MAX:        # no await between this check and the increment
+        return _err(503, "the relay is busy with other uploads; retry shortly")
+    _uploading += 1
+    try:
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > FILE_MAX:
+                return _err(413, f"a file is at most {FILE_MAX} bytes")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        del chunks
+        return await _accept_file(id, sender, to, sha256, data)
+    finally:
+        _uploading -= 1
+
+
+async def _accept_file(id: str, sender: str, to: str, sha256: str,
+                       data: bytes) -> JSONResponse:
+    """Check and store a fully received body."""
+    if not data:
+        return _err(400, "the file is empty")
+    if hashlib.sha256(data).hexdigest() != sha256:
+        return _err(400, "sha256 does not match the body")
+    try:
+        stored = await run_in_threadpool(_store_file, id, sender, to, sha256, data)
+    except OverflowError as e:
+        if "full" in str(e):
+            return _err(507, "the relay has no room for more files right now")
+        return _err(507, f"{to} already has {QUOTA_BYTES} bytes of files waiting")
+    except ValueError as e:
+        return _err(409, str(e))
+    return JSONResponse({"ok": True, "id": id, "size": len(data), "stored": stored},
+                        status_code=201 if stored else 200)
+
+
+def _store_file(file_id: str, sender: str, to: str, sha256: str, data: bytes) -> bool:
+    STORE.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
+    return STORE.mail.put_file(file_id, sender, to, sha256, data, QUOTA_BYTES, TOTAL_BYTES)
+
+
+@app.get("/files/{file_id}", summary="Download a file left for me", response_model=None)
+def get_file(file_id: str, authorization: str = Header(default="")) -> Response:
+    """The sealed file, raw bytes, with its hash in `X-Sha256`. Not deleted yet:
+    the recipient checks the hash and then calls `DELETE`."""
+    who = _recipient(authorization)
+    if isinstance(who, JSONResponse):
+        return who
+    got = STORE.mail.get_file(file_id, who) if MSG_ID_RE.fullmatch(file_id) else None
+    if got is None:
+        return _err(404, "no such file waiting for you")
+    return Response(got[0], media_type="application/octet-stream",
+                    headers={"X-Sha256": got[1]})
+
+
+@app.delete("/files/{file_id}", summary="Delete a file once downloaded", response_model=None)
+def delete_file(file_id: str, authorization: str = Header(default="")) -> JSONResponse | dict:
+    """Only the recipient can. Idempotent in effect: a second call is a 404."""
+    who = _recipient(authorization)
+    if isinstance(who, JSONResponse):
+        return who
+    if not (MSG_ID_RE.fullmatch(file_id) and STORE.mail.delete_file(file_id, who)):
+        return _err(404, "no such file waiting for you")
+    return {"ok": True}
+
+
+@app.post("/refusals", summary="Refuse a sender", response_model=None)
+def post_refusals(data: Any = Body(default=None),
+                  authorization: str = Header(default="")) -> JSONResponse | dict[str, Any]:
+    """`{from}`: the caller refuses that sender. Every message and file it left
+    for the caller is deleted, and the counts returned."""
+    who = _recipient(authorization)
+    if isinstance(who, JSONResponse):
+        return who
+    sender = _text(data.get("from")) if isinstance(data, dict) else ""
+    if not ID_RE.fullmatch(sender):
+        return _err(400, "from must be a user id (X25519 public key)")
+    return {"ok": True, "from": sender, **STORE.mail.refuse(who, sender)}

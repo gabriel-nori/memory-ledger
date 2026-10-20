@@ -1807,6 +1807,9 @@ def test_b2b_routes(api: Api) -> None:
                    COULD_NOT_REACH)
     assert_refused(api.post("/api/b2b-send", {"to": "nobody", "text": "hi"}), 400,
                    "not a connected peer")
+    assert_refused(api.post("/api/b2b-send", {"to": "Ana", "text": "hi", "files": ["../x"]}),
+                   400, "not a file saved by")
+    assert th_ok(api.get(f"/api/b2b-thread?peer={PEER_KEY}&limit=5&before=2020-01-01"))
     assert_refused(api.post("/api/b2b-send", {"to": "Ana", "text": "hi", "human": True}), 400,
                    COULD_NOT_REACH)
     cv = api.get("/api/b2b-conversations").json()
@@ -1824,6 +1827,11 @@ def test_b2b_routes(api: Api) -> None:
     b = api.post(B2B_BROKER, {"id": "team", "remove": True})
     assert b.status == 200
     assert len(b.json()["config"]["brokers"]) == 1, "a broker is removed"
+
+
+def th_ok(resp) -> bool:
+    body = resp.json()
+    return body.get("ok") and body["messages"] == [] and body["has_more"] is False
 
 
 # ============================================================ usage report

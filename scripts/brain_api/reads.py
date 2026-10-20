@@ -241,14 +241,18 @@ def b2b_conversations():
 
 
 @router.get("/b2b-thread", tags=["b2b"], summary="B2B: the messages with one brain",
-            description="Both directions, oldest first. Each says when it was sent, "
-                        "whether a person wrote it (`human`) or a session or script did, "
-                        "and, for a received one, the request it became.")
+            description="One page of a conversation, oldest first: the latest 20, or the 20 "
+                        "sent before `before` (a time, the `next_before` of the page after). "
+                        "`has_more` says older ones exist. Each says when it was sent, whether "
+                        "a person wrote it (`human`) or a session or script did, whether it is "
+                        "`sent`, `staged` (waiting for the peer's box to have room) or "
+                        "`failed`, its `files`, and, for a received one, the request it became.")
 def b2b_thread(peer: str = Query("", description="The peer's user id."),
-               limit: int = Query(500, ge=1, le=2000)):
+               limit: int = Query(b2b.THREAD_PAGE, ge=1, le=200),
+               before: str = Query("", description="Only messages sent before this time.")):
     if not peer:
         return {"ok": False, "error": "missing peer"}
-    return {"ok": True, "peer_id": peer, "messages": b2b.thread(b2b.db(), peer, limit)}
+    return {"ok": True, "peer_id": peer, **b2b.thread_page(b2b.db(), peer, limit, before)}
 
 
 @router.get("/agents", tags=["agents"], summary="Agents: the connectors and their models",

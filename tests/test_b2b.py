@@ -18,6 +18,7 @@ in file order. The state they share lives in the module-scoped `brain` fixture.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -27,6 +28,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,6 +40,7 @@ pytest.importorskip("cryptography")
 
 import b2b  # noqa: E402
 import b2b_crypto as bc  # noqa: E402
+import b2b_files  # noqa: E402
 import graph  # noqa: E402
 import trigger  # noqa: E402
 from conftest import LOCALHOST, ROOT, UTF8  # noqa: E402
@@ -49,6 +52,8 @@ SENT_AT = "2026-09-30T00:00:00+00:00"
 ANA = "Ana Souza"
 BROKER_A = "team-a-relay"
 BROKER_B = "team-b-relay"
+FILE_MAX_TEST = 2_000            # bytes: the relay's limits, lowered for the tests
+QUOTA_TEST = 5_000
 CLAUDE_CALLS = "claude-calls.jsonl"
 SCRIPT_LOG = "b2b-script.log"
 SCRIPT_NAME = "b2b-note.sh"
@@ -110,8 +115,11 @@ class Client:
         self.token = s["token"]
         return self.token
 
-    def send(self, to: str, text: str, human: bool | None = None) -> tuple[int, dict[str, Any]]:
+    def send(self, to: str, text: str, human: bool | None = None,
+             files: list[dict[str, Any]] | None = None) -> tuple[int, dict[str, Any]]:
         payload: dict[str, Any] = {"text": text, "sent_at": SENT_AT}
+        if files:
+            payload["files"] = files
         if human is not None:
             payload["human"] = human
         env = bc.seal(self.key, to, payload)
@@ -123,11 +131,27 @@ class Client:
                 for m in r.get("messages") or []]
 
 
-def _start_relay(log: Path) -> tuple[subprocess.Popen, str, Any]:
+def raw(base: str, method: str, path: str, data: bytes | None = None,
+        token: str = "") -> tuple[int, bytes, dict[str, str]]:
+    """One call with a raw body: (status, body, headers)."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read(), {k.lower(): v for k, v in r.headers.items()}
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), {k.lower(): v for k, v in e.headers.items()}
+
+
+def _start_relay(log: Path, env: dict[str, str] | None = None) -> tuple[subprocess.Popen, str, Any]:
     port = _free_port()
     out = open(log, "wb")
+    base_env = {k: v for k, v in os.environ.items() if not k.startswith("B2B_DB_")}
+    base_env["B2B_SQLITE_PATH"] = str(log.with_suffix(".db"))
+    base_env.update({"B2B_FILE_MAX": str(FILE_MAX_TEST), "B2B_QUOTA_BYTES": str(QUOTA_TEST)})
+    base_env.update(env or {})
     proc = subprocess.Popen([sys.executable, str(RELAY), "--port", str(port)],
-                            stdout=out, stderr=subprocess.STDOUT)
+                            stdout=out, stderr=subprocess.STDOUT, env=base_env)
     base = f"http://{LOCALHOST}:{port}"
     deadline = time.time() + RELAY_START_TIMEOUT_S
     while time.time() < deadline:
@@ -311,6 +335,162 @@ class TestRelay:
         b.login()
         assert [(m["from"], m["text"]) for m in b.read()] == [(a.id, "hi b")]
         assert b.read() == []
+
+
+def file_call(base: str, sender: Client, to: str, data: bytes, fid: str | None = None,
+              sha: str | None = None) -> tuple[int, dict[str, Any]]:
+    """Upload `data` as a file from `sender` to `to`."""
+    fid = fid or uuid.uuid4().hex
+    sha = sha or hashlib.sha256(data).hexdigest()
+    st, body, _ = raw(base, "POST", f"/files?id={fid}&from={sender.id}&to={to}&sha256={sha}",
+                      data)
+    return st, {**json.loads(body or b"{}"), "_id": fid}
+
+
+class TestRelayFiles:
+    """Sealed files on the relay: upload, download, delete, quota, refusal."""
+
+    def test_the_recipient_downloads_then_deletes_it(self, base):
+        a, b = Client(base), Client(base)
+        st, up = file_call(base, a, b.id, b"sealed-bytes")
+        assert (st, up["stored"]) == (201, True)
+        b.login()
+        st, body, hdr = raw(base, "GET", f"/files/{up['_id']}", token=b.token)
+        assert (st, body) == (200, b"sealed-bytes")
+        assert hdr["x-sha256"] == hashlib.sha256(b"sealed-bytes").hexdigest()
+        assert raw(base, "DELETE", f"/files/{up['_id']}", token=b.token)[0] == 200
+        assert raw(base, "GET", f"/files/{up['_id']}", token=b.token)[0] == 404
+
+    def test_a_retried_upload_is_the_same_file_not_a_second_one(self, base):
+        a, b = Client(base), Client(base)
+        fid = uuid.uuid4().hex
+        assert file_call(base, a, b.id, b"x" * 1000, fid)[0] == 201
+        st, up = file_call(base, a, b.id, b"x" * 1000, fid)
+        assert (st, up["stored"]) == (200, False)
+        assert file_call(base, a, b.id, b"y" * 10, fid)[0] == 409
+
+    def test_nobody_else_can_read_or_delete_it(self, base):
+        a, b, c = Client(base), Client(base), Client(base)
+        fid = file_call(base, a, b.id, b"secret")[1]["_id"]
+        for who in (a, c):
+            who.login()
+            assert raw(base, "GET", f"/files/{fid}", token=who.token)[0] == 404
+            assert raw(base, "DELETE", f"/files/{fid}", token=who.token)[0] == 404
+        assert raw(base, "GET", f"/files/{fid}")[0] == 401
+
+    def test_a_body_that_does_not_match_its_hash_is_refused(self, base):
+        a, b = Client(base), Client(base)
+        assert file_call(base, a, b.id, b"data", sha="0" * 64)[0] == 400
+
+    def test_an_over_large_file_is_refused_not_cut(self, base):
+        a, b = Client(base), Client(base)
+        assert file_call(base, a, b.id, b"x" * (FILE_MAX_TEST + 1))[0] == 413
+
+    def test_past_the_quota_the_upload_is_refused_until_something_is_downloaded(self, base):
+        a, b = Client(base), Client(base)
+        chunk = b"q" * 1_800
+        ids = [file_call(base, a, b.id, chunk + bytes([i]))[1]["_id"] for i in range(2)]
+        assert file_call(base, a, b.id, chunk + b"c")[0] == 507         # 3 x 1,801 > 5,000
+        b.login()
+        assert raw(base, "DELETE", f"/files/{ids[0]}", token=b.token)[0] == 200
+        assert file_call(base, a, b.id, chunk + b"d")[0] == 201
+
+    def test_refusing_a_sender_deletes_their_messages_and_files_only(self, base):
+        a, b, c = Client(base), Client(base), Client(base)
+        fa = file_call(base, a, b.id, b"from a")[1]["_id"]
+        fc = file_call(base, c, b.id, b"from c")[1]["_id"]
+        a.send(b.id, "hi")
+        b.login()
+        st, r = call(base, "POST", "/refusals", {"from": a.id}, token=b.token)
+        assert (st, r["messages"], r["files"]) == (200, 1, 1)
+        assert raw(base, "GET", f"/files/{fa}", token=b.token)[0] == 404
+        assert raw(base, "GET", f"/files/{fc}", token=b.token)[0] == 200
+        assert b.read() == []
+
+    def test_refusing_needs_a_session_and_a_user_id(self, base):
+        a, b = Client(base), Client(base)
+        assert call(base, "POST", "/refusals", {"from": a.id})[0] == 401
+        b.login()
+        assert call(base, "POST", "/refusals", {"from": "nope"}, token=b.token)[0] == 400
+
+
+class TestRelayDatabase:
+    """SQLite by default and when PostgreSQL is incomplete or fails."""
+
+    def test_sqlite_is_the_default(self, base):
+        assert call(base, "GET", "/health")[1]["database"] == "sqlite"
+
+    @pytest.mark.parametrize("label, env", [
+        ("a variable missing", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p", "B2B_DB_NAME": "d",
+                                "B2B_DB_URL": "127.0.0.1"}),
+        ("a server that is not there", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p",
+                                        "B2B_DB_NAME": "d", "B2B_DB_URL": "127.0.0.1",
+                                        "B2B_DB_PORT": "1"}),
+        ("a port that is not a number", {"B2B_DB_USER": "u", "B2B_DB_PASSWORD": "p",
+                                         "B2B_DB_NAME": "d", "B2B_DB_URL": "127.0.0.1",
+                                         "B2B_DB_PORT": "x"}),
+    ])
+    def test_falls_back_to_sqlite(self, tmp_path, label, env):
+        proc, url, out = _start_relay(tmp_path / "fb.log", env)
+        try:
+            health = call(url, "GET", "/health")[1]
+            assert health["database"] == "sqlite"
+            a, b = Client(url), Client(url)
+            assert a.send(b.id, "still works")[0] == 202
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+
+    def test_messages_survive_a_restart(self, tmp_path):
+        a_key, a_id = bc.generate()
+        b = None
+        log = tmp_path / "keep.log"
+        proc, url, out = _start_relay(log)
+        try:
+            b = Client(url)
+            a = Client(url)
+            assert a.send(b.id, "kept")[0] == 202
+            assert file_call(url, a, b.id, b"kept file")[0] == 201
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+        proc, url, out = _start_relay(log)     # same SQLite file
+        try:
+            b.base = url
+            b.login()
+            assert [m["text"] for m in b.read()] == ["kept"]
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
+
+    @pytest.mark.skipif(not all(os.environ.get(k) for k in (
+        "B2B_TEST_PG_USER", "B2B_TEST_PG_PASSWORD", "B2B_TEST_PG_NAME", "B2B_TEST_PG_HOST",
+        "B2B_TEST_PG_PORT")), reason="set B2B_TEST_PG_{USER,PASSWORD,NAME,HOST,PORT} to run "
+                                     "against a real PostgreSQL")
+    def test_postgresql_when_all_five_are_set(self, tmp_path):
+        env = {"B2B_DB_USER": os.environ["B2B_TEST_PG_USER"],
+               "B2B_DB_PASSWORD": os.environ["B2B_TEST_PG_PASSWORD"],
+               "B2B_DB_NAME": os.environ["B2B_TEST_PG_NAME"],
+               "B2B_DB_URL": os.environ["B2B_TEST_PG_HOST"],
+               "B2B_DB_PORT": os.environ["B2B_TEST_PG_PORT"]}
+        proc, url, out = _start_relay(tmp_path / "pg.log", env)
+        try:
+            assert call(url, "GET", "/health")[1]["database"] == "postgresql"
+            a, b = Client(url), Client(url)
+            fid = file_call(url, a, b.id, b"pg bytes")[1]["_id"]
+            a.send(b.id, "via pg")
+            b.login()
+            assert [m["text"] for m in b.read()] == ["via pg"]
+            assert raw(url, "GET", f"/files/{fid}", token=b.token)[1] == b"pg bytes"
+            assert call(url, "POST", "/refusals", {"from": a.id}, token=b.token)[0] == 200
+            assert raw(url, "GET", f"/files/{fid}", token=b.token)[0] == 404
+        finally:
+            proc.terminate()
+            proc.wait(timeout=RELAY_STOP_TIMEOUT_S)
+            out.close()
 
 
 # ================================================================ the brain
@@ -695,6 +875,192 @@ class TestBrainBrokers:
         assert res.get("ok") is False
         assert "down" in res.get("errors", {})
         assert b2b.update_broker("down", remove=True).get("ok")
+
+
+class TestBrainFiles:
+    """Attachments: sent sealed and kept, staged when the relay has no room, taken
+    and unpacked safely, and a refused sender's removed."""
+
+    @staticmethod
+    def _zip(members: dict[str, bytes]) -> bytes:
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for name, data in members.items():
+                z.writestr(name, data)
+        return buf.getvalue()
+
+    @staticmethod
+    def _upload(brain, sender: Client, zipped: bytes, tamper: bool = False) -> dict[str, Any]:
+        """Seal `zipped` and leave it for the brain; the entry a message carries."""
+        fid, key, nonce = uuid.uuid4().hex, os.urandom(32), os.urandom(12)
+        blob = bc.seal_file(key, nonce, fid, zipped)
+        sha = hashlib.sha256(blob).hexdigest()
+        st, _ = file_call(brain.base, sender, brain.me, blob, fid)
+        assert st == 201
+        if tamper:
+            sha = "0" * 64
+        return {"id": fid, "key": bc.b64(key), "nonce": bc.b64(nonce), "sha256": sha,
+                "size": len(blob), "names": ["x"]}
+
+    @staticmethod
+    def _brain_token(brain) -> str:
+        cfg = b2b.load_config()
+        return b2b.login(cfg, b2b.get_broker(cfg, BROKER_A))
+
+    def test_setup(self, brain, tmp_path):
+        brain.src = tmp_path / "src"
+        brain.src.mkdir()
+        (brain.src / "notes.txt").write_text("hello", encoding=UTF8)
+        (brain.src / "big1.bin").write_bytes(os.urandom(1_800))
+        (brain.src / "big2.bin").write_bytes(os.urandom(1_800))
+        (brain.src / "big3.bin").write_bytes(os.urandom(1_800))
+        brain.peer.login()
+
+    def test_a_message_with_a_file_is_sealed_and_the_file_downloads_and_opens(self, brain):
+        res = b2b.send(brain.ana, "see this", files=[str(brain.src / "notes.txt")])
+        assert res.get("ok") and res["staged"] is False, res
+        brain.sent_id = res["id"]
+        [msg] = brain.peer.read()
+        ref = msg["files"][0]
+        st, blob, _ = raw(brain.base, "GET", f"/files/{ref['id']}", token=brain.peer.token)
+        assert st == 200 and hashlib.sha256(blob).hexdigest() == ref["sha256"]
+        zipped = bc.open_file(bc.unb64(ref["key"]), bc.unb64(ref["nonce"]), ref["id"], blob)
+        out = b2b_files.extract_zip(zipped, brain.src.parent / "opened")
+        assert out == ["notes.txt"]
+        assert raw(brain.base, "DELETE", f"/files/{ref['id']}", token=brain.peer.token)[0] == 200
+
+    def test_what_was_sent_is_kept_for_sending_again(self, brain):
+        d = b2b.sent_dir(brain.peer.id, brain.sent_id)
+        assert (d / "attachments.zip").is_file() and (d / "message.json").is_file()
+        row = next(s for s in b2b.list_sent(brain.con) if s["id"] == brain.sent_id)
+        assert row["status"] == "sent" and json.loads(row["files"]) == ["notes.txt"]
+
+    def test_a_full_box_leaves_the_message_staged_not_failed(self, brain):
+        ok1 = b2b.send(brain.ana, "one", files=[str(brain.src / "big1.bin")])
+        ok2 = b2b.send(brain.ana, "two", files=[str(brain.src / "big2.bin")])
+        full = b2b.send(brain.ana, "three", files=[str(brain.src / "big3.bin")])
+        assert ok1["staged"] is False and ok2["staged"] is False
+        assert full.get("ok") and full["staged"] is True and "507" in full["reason"], full
+        brain.staged_id = full["id"]
+        row = next(s for s in b2b.list_sent(brain.con) if s["id"] == full["id"])
+        assert row["status"] == "staged"
+
+    def test_nothing_of_a_staged_message_reached_the_peer(self, brain):
+        msgs = brain.peer.read()
+        assert [m["text"] for m in msgs] == ["one", "two"]
+        brain.first_two = [m["files"][0]["id"] for m in msgs]
+
+    def test_once_there_is_room_a_pass_sends_it_and_only_once(self, brain):
+        assert b2b.flush_staged(b2b.load_config(), brain.con)["staged"] == [brain.staged_id]
+        for fid in brain.first_two:      # the peer takes the first two: the room is back
+            assert raw(brain.base, "DELETE", f"/files/{fid}", token=brain.peer.token)[0] == 200
+        res = b2b.flush_staged(b2b.load_config(), brain.con)
+        assert res == {"sent": [brain.staged_id], "staged": [], "failed": []}
+        assert [m["text"] for m in brain.peer.read()] == ["three"]
+        assert b2b.flush_staged(b2b.load_config(), brain.con) == {
+            "sent": [], "staged": [], "failed": []}
+
+    def test_an_attachment_from_an_allowed_peer_is_taken_and_unpacked(self, brain):
+        ref = self._upload(brain, brain.peer, self._zip({"a.txt": b"hi", "sub/b.txt": b"yo"}))
+        brain.peer.send(brain.me, "files for you", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert res.get("ok") and len(res["queued"]) == 1, res
+        req = trigger.get_request(brain.con, res["queued"][0])
+        mid = req["event_id"]
+        d = b2b.received_dir(brain.peer.id, mid)
+        assert (d / "a.txt").read_text(encoding=UTF8) == "hi"
+        assert (d / "sub" / "b.txt").read_text(encoding=UTF8) == "yo"
+        assert str(d) in req["text"]
+        assert req["meta"]["vars"]["b2b_attachments_dir"] == str(d)
+
+    def test_and_it_is_gone_from_the_relay(self, brain):
+        row = brain.con.execute("SELECT * FROM b2b_attachment").fetchone()
+        assert row["state"] == "done" and row["key"] == ""
+        assert raw(brain.base, "GET", f"/files/{row['file_id']}",
+                   token=self._brain_token(brain))[0] == 404
+
+    @pytest.mark.parametrize("label,members", [
+        ("zip-slip", {"../evil.txt": b"x"}),
+        ("absolute", {"/tmp/evil.txt": b"x"}),
+    ])
+    def test_an_archive_that_would_harm_is_refused_and_still_removed_from_the_relay(
+            self, brain, label, members):
+        ref = self._upload(brain, brain.peer, self._zip(members))
+        brain.peer.send(brain.me, f"bad {label}", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        req = trigger.get_request(brain.con, res["queued"][0])
+        assert "could not be taken" in req["text"]
+        row = brain.con.execute("SELECT * FROM b2b_attachment WHERE file_id=?",
+                                (ref["id"],)).fetchone()
+        assert row["state"] == "failed" and row["key"] == ""
+        assert not b2b.received_dir(brain.peer.id, req["event_id"]).exists()
+        assert raw(brain.base, "GET", f"/files/{ref['id']}",
+                   token=self._brain_token(brain))[0] == 404
+
+    def test_a_file_that_does_not_match_the_hash_in_the_message_is_refused(self, brain):
+        ref = self._upload(brain, brain.peer, self._zip({"a.txt": b"hi"}), tamper=True)
+        brain.peer.send(brain.me, "wrong hash", files=[ref])
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert "could not be taken" in trigger.get_request(brain.con, res["queued"][0])["text"]
+
+    def test_a_blocked_sender_is_refused_at_the_relay_with_everything_they_left(self, brain):
+        ref = self._upload(brain, brain.stranger, self._zip({"a.txt": b"hi"}))
+        brain.stranger.send(brain.me, "buy", files=[ref])
+        # a second file the poll will not have a message for: refusal removes it too
+        extra = self._upload(brain, brain.stranger, self._zip({"b.txt": b"hi"}))
+        res = b2b.poll(dispatch=brain.dispatched.append)
+        assert len(res["blocked"]) == 1 and not res["queued"]
+        tok = self._brain_token(brain)
+        assert raw(brain.base, "GET", f"/files/{ref['id']}", token=tok)[0] == 404
+        assert raw(brain.base, "GET", f"/files/{extra['id']}", token=tok)[0] == 404
+        assert not b2b.attachments_root().joinpath(brain.stranger.id).exists()
+
+    def test_resend_sends_the_kept_files_as_a_new_message(self, brain):
+        res = b2b.resend(brain.sent_id)
+        assert res.get("ok") and res["id"] != brain.sent_id and res["files"] == ["notes.txt"], res
+
+
+class TestBrainThreadPages:
+    """The chat is given the latest 20 and reads back by date."""
+
+    def test_setup(self, brain):
+        brain.pid = Client(brain.base).id
+        for i in range(45):
+            at = f"2026-10-01T00:{i // 2:02d}:00+00:00"       # two messages share each minute
+            brain.con.execute("INSERT INTO b2b_sent(id, peer_id, text, sent_at, broker_id) "
+                              "VALUES(?,?,?,?,?)", (f"{i:032x}", brain.pid, f"m{i}", at, BROKER_A))
+        brain.con.commit()
+
+    def test_the_first_page_is_the_latest_twenty_oldest_first(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid)
+        # m24 and m25 share a minute, so the page takes both: 21, not 20
+        assert [m["text"] for m in page["messages"]] == [f"m{i}" for i in range(24, 45)]
+        assert page["has_more"] is True
+
+    def test_the_cursor_walks_back_without_a_gap_or_a_repeat(self, brain):
+        seen: list[str] = []
+        before, pages = "", 0
+        while True:
+            page = b2b.thread_page(brain.con, brain.pid, before=before)
+            seen = [m["text"] for m in page["messages"]] + seen
+            pages += 1
+            if not page["has_more"]:
+                break
+            before = page["next_before"]
+        assert seen == [f"m{i}" for i in range(45)]
+        assert pages == 3
+
+    def test_messages_sharing_a_time_are_never_split_across_pages(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid, limit=3)
+        older = b2b.thread_page(brain.con, brain.pid, limit=3, before=page["next_before"])
+        assert not {m["id"] for m in page["messages"]} & {m["id"] for m in older["messages"]}
+        assert page["messages"][0]["at"] != older["messages"][-1]["at"]
+
+    def test_a_conversation_with_nothing_older_has_no_cursor(self, brain):
+        page = b2b.thread_page(brain.con, brain.pid, limit=100)
+        assert page["has_more"] is False and page["next_before"] == ""
 
 
 class TestBrainDisconnecting:

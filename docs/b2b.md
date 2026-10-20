@@ -235,6 +235,32 @@ Sent from a session, it is also logged as a `b2b-send` action on that request.
 name or person, through that peer's broker. Every sent message is kept in
 `graph.db` (`b2b_sent`).
 
+### Attachments
+
+A message can carry files. They never travel in the envelope (40 KB, text only):
+
+- **Sending.** `b2b.py send --to X --text … --file a.pdf --file b.png` (or `files` on
+  `/api/b2b-send`, with names from `/api/agent-attach`). The files are zipped flat
+  (at most 20, the zip at most 50 MB), sealed with a key of their own, and left on
+  the relay with `POST /files`. The key, the file's id, its SHA-256 and the names
+  travel **inside** the sealed message. The zip and a `message.json` are kept in
+  `<home>/chat_attachments/<chat_id>/sent/<message_id>/` so a message can be sent
+  again (`b2b.py resend <id>`). The brain never cleans that folder; that is the owner's.
+- **Staged.** If the relay cannot be reached, or the recipient already has 500 MB
+  waiting (`507`), nothing is lost: the message stays `staged` and every poll tries
+  it again, under the same ids, so a retry is never a second message. Any other
+  refusal marks it `failed`.
+- **Receiving.** Only from an allowed sender. The file is downloaded, checked against
+  the hash in the sealed message, opened with its key, and unpacked into
+  `<home>/chat_attachments/<chat_id>/<message_id>/`; then it is deleted from the
+  relay. The request's text says where the files are (`b2b_attachments_dir`). A zip
+  that tries to leave its folder, holds a link, or unpacks to far more than it weighs
+  (200 MB / 200 entries / a 200× ratio) is refused whole, and also deleted from the
+  relay. A download that fails for lack of a connection is retried on later polls.
+- **Refusing.** A message from a sender who is not allowed is logged `blocked`, and
+  the brain posts a refusal to the relay (`POST /refusals`): everything that sender
+  left for this brain, messages and files, is deleted there.
+
 ### Human or automated
 
 Every message says whether a person wrote it. The flag (`human`) is sealed
@@ -258,7 +284,7 @@ be read but not written to.
 | Route | |
 |---|---|
 | `GET /api/b2b-conversations` | everyone this brain messaged or heard from, and connected peers not talked to yet |
-| `GET /api/b2b-thread?peer=` | the messages with one peer, both ways, each flagged `human` and stamped `at` |
+| `GET /api/b2b-thread?peer=&limit=&before=` | a page of the conversation, both ways, oldest first: the latest 20, or the 20 before the time `before`; `has_more` and `next_before` walk back. Each is flagged `human`, stamped `at`, has a `status` (`sent`, `staged`, `failed`) and its `files` |
 | `GET /api/b2b` | the config (the user id, never the private key), brokers with their session state, peers, the allowed list, sent messages, received ones by status, and the poller's state |
 | `POST /api/b2b-config` | a patch of `b2b.json`; restarts the poller |
 | `POST /api/b2b-identity` | `{force?}`: a new key pair |
