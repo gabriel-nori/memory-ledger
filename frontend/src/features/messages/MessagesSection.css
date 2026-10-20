@@ -77,3 +77,36 @@
 .ml-msg__fmt:disabled { opacity: 0.4; cursor: default; }
 .ml-msg__fmt code { font-family: var(--font-mono); font-size: 11px; }
 .ml-msg__bubble .ml-rich__pre { max-width: 100%; }
+
+.ml-msg__older {
+  display: flex;
+  justify-content: center;
+  list-style: none;
+}
+.ml-msg__files,
+.ml-msg__picked {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.85em;
+}
+.ml-msg__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+.ml-msg__chip.is-failed {
+  opacity: 0.6;
+}
+.ml-msg__chip button {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}

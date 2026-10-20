@@ -9,7 +9,7 @@ import { Section } from "@/features/shell/Section";
 import { formatDate, truncate } from "@/lib/format";
 import { applyMark, plainText } from "@/lib/richText";
 import type { Mark } from "@/lib/richText";
-import type { B2BConversation, B2BMessage } from "@/api/types";
+import type { B2BConversation, B2BMessage, B2BThread } from "@/api/types";
 import "./MessagesSection.css";
 
 /**
@@ -32,7 +32,7 @@ export function MessagesSection() {
   const [picking, setPicking] = useState(false);
 
   const convs = usePolling((signal) => api.b2bConversations(signal), { intervalMs: 15_000 });
-  const thread = usePolling((signal) => api.b2bThread(selected, signal), {
+  const thread = usePolling((signal) => api.b2bThread(selected, "", signal), {
     intervalMs: 10_000,
     enabled: !!selected,
     key: selected,
@@ -55,7 +55,7 @@ export function MessagesSection() {
 
   const current = all.find((c) => c.peer_id === selected);
   // The previous peer's thread stays in state until the new one lands.
-  const messages = thread.data?.peer_id === selected ? thread.data.messages : null;
+  const latest = thread.data?.peer_id === selected ? thread.data : null;
 
   return (
     <Section
@@ -144,7 +144,7 @@ export function MessagesSection() {
               key={selected}
               peer={selected}
               conversation={current}
-              messages={messages}
+              latest={latest}
               error={thread.error}
               writable={writable}
               onSent={() => {
@@ -176,13 +176,86 @@ export function AuthorIcon({ human }: { human: boolean }) {
 interface ThreadProps {
   peer: string;
   conversation: B2BConversation | undefined;
-  messages: B2BMessage[] | null;
+  /** The newest page, refreshed by the poll. */
+  latest: B2BThread | null;
   error: string | null;
   writable: boolean;
   onSent: () => void;
 }
 
-function Thread({ peer, conversation, messages, error, writable, onSent }: ThreadProps) {
+const ATTACH_MAX = 25 * 1024 * 1024;
+const ATTACH_LIMIT = 20;
+
+const toBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error ?? new Error("could not read the file"));
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ""));
+    r.readAsDataURL(file);
+  });
+
+interface Picked {
+  key: number;
+  name: string;
+  path: string;
+  state: "saving" | "ready" | "failed";
+}
+
+const msgKey = (m: B2BMessage) => `${m.direction}-${m.id}`;
+
+function Thread({ peer, conversation, latest, error, writable, onSent }: ThreadProps) {
+  // The poll gives the latest page; older ones are read on demand and kept here.
+  const [older, setOlder] = useState<B2BMessage[]>([]);
+  const [cursor, setCursor] = useState<{ more: boolean; before: string } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [picked, setPicked] = useState<Picked[]>([]);
+  const keys = useRef(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const messages = useMemo(() => {
+    if (!latest) return null;
+    const seen = new Set(latest.messages.map(msgKey));
+    return [...older.filter((m) => !seen.has(msgKey(m))), ...latest.messages];
+  }, [older, latest]);
+  const more = cursor ? cursor.more : !!latest?.has_more;
+  const before = cursor ? cursor.before : (latest?.next_before ?? "");
+
+  const loadOlder = async () => {
+    if (!more || !before || loadingOlder) return;
+    setLoadingOlder(true);
+    stick.current = false;
+    try {
+      const page = await api.b2bThread(peer, before);
+      setOlder((all) => [...page.messages, ...all]);
+      setCursor({ more: page.has_more, before: page.next_before });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
+  const pick = (list: File[]) => {
+    const room = ATTACH_LIMIT - picked.length;
+    if (list.length > room) setSendError(`At most ${ATTACH_LIMIT} files go with one message.`);
+    for (const file of list.slice(0, Math.max(room, 0))) {
+      if (file.size > ATTACH_MAX) {
+        setSendError(`${file.name || "A file"} is over 25 MB.`);
+        continue;
+      }
+      const key = ++keys.current;
+      const name = file.name || `file-${key}`;
+      setPicked((all) => [...all, { key, name, path: "", state: "saving" }]);
+      toBase64(file)
+        .then((data) => api.attachFile(name, data))
+        .then(
+          (res) => setPicked((all) => all.map((x) => (x.key === key ? { ...x, path: res.path, state: "ready" } : x))),
+          (err) => {
+            setSendError(err instanceof Error ? err.message : String(err));
+            setPicked((all) => all.map((x) => (x.key === key ? { ...x, state: "failed" } : x)));
+          },
+        );
+    }
+  };
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -218,15 +291,24 @@ function Thread({ peer, conversation, messages, error, writable, onSent }: Threa
     if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
   const connected = !!conversation?.connected;
-  const canSend = writable && connected && !busy && !!text.trim();
+  const ready = picked.filter((f) => f.state === "ready");
+  const saving = picked.some((f) => f.state === "saving");
+  const canSend = writable && connected && !busy && !saving && (!!text.trim() || ready.length > 0);
 
   const send = async () => {
     if (!canSend) return;
     setBusy(true);
     setSendError(null);
     try {
-      await api.sendB2B(peer, text.trim(), true);
+      const res = await api.sendB2B(
+        peer,
+        text.trim(),
+        true,
+        ready.map((f) => f.path),
+      );
+      if (res.staged) setSendError(`Waiting to send: ${res.reason ?? "the peer's box is full or the relay is out of reach"}. It goes on its own.`);
       setText("");
+      setPicked([]);
       onSent();
       box.current?.focus();
     } catch (err) {
@@ -275,10 +357,24 @@ function Thread({ peer, conversation, messages, error, writable, onSent }: Threa
         {error ? <StatusMessage tone="error">{error}</StatusMessage> : null}
         {!messages && !error ? <Spinner label="reading messages" /> : null}
         {messages && !messages.length ? <EmptyState title="No messages yet" hint="Say hello below." /> : null}
+        {more ? (
+          <li className="ml-msg__older">
+            <Button size="sm" disabled={loadingOlder} onClick={() => void loadOlder()}>
+              {loadingOlder ? "loading…" : "Load earlier messages"}
+            </Button>
+          </li>
+        ) : null}
         {messages?.map((m) => (
-          <li key={`${m.direction}-${m.id}`} className={`ml-msg__item ml-msg__item--${m.direction}`}>
+          <li key={msgKey(m)} className={`ml-msg__item ml-msg__item--${m.direction}`}>
             <div className="ml-msg__bubble">
-              <RichText text={m.text} />
+              {m.text ? <RichText text={m.text} /> : null}
+              {m.files?.length ? (
+                <ul className="ml-msg__files" aria-label="attached files">
+                  {m.files.map((f) => (
+                    <li key={f}>📎 {f}</li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
             <div className="ml-msg__meta">
               <AuthorIcon human={m.human} />
@@ -286,6 +382,20 @@ function Thread({ peer, conversation, messages, error, writable, onSent }: Threa
                 {formatDate(m.at)}
               </time>
               {m.direction === "in" && m.status === "blocked" ? <Badge tone="warn">blocked</Badge> : null}
+              {m.direction === "out" && m.status === "staged" ? (
+                <Badge tone="warn" title="Waiting: the peer's box is full or the relay is out of reach. Tried again on every poll.">
+                  waiting to send
+                </Badge>
+              ) : null}
+              {m.direction === "out" && m.status === "failed" ? <Badge tone="danger">not sent</Badge> : null}
+              {m.direction === "in" && m.attachment?.state === "pending" ? (
+                <Badge tone="warn">files downloading</Badge>
+              ) : null}
+              {m.direction === "in" && m.attachment?.state === "failed" ? (
+                <Badge tone="danger" title={m.attachment.error}>
+                  files refused
+                </Badge>
+              ) : null}
             </div>
           </li>
         ))}
@@ -295,6 +405,23 @@ function Thread({ peer, conversation, messages, error, writable, onSent }: Threa
         {why ? <p className="ml-msg__hint">{why}</p> : null}
         {sendError ? <StatusMessage tone="error">{sendError}</StatusMessage> : null}
         <FormatBar onMark={mark} disabled={!writable || !connected} />
+        {picked.length ? (
+          <ul className="ml-msg__picked" aria-label="files to send">
+            {picked.map((f) => (
+              <li key={f.key} className={`ml-msg__chip is-${f.state}`}>
+                📎 {f.name}
+                {f.state === "saving" ? " …" : f.state === "failed" ? " (failed)" : ""}
+                <button
+                  type="button"
+                  aria-label={`remove ${f.name}`}
+                  onClick={() => setPicked((all) => all.filter((x) => x.key !== f.key))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div className="ml-msg__compose-row">
           <TextArea
             ref={box}
@@ -306,6 +433,24 @@ function Thread({ peer, conversation, messages, error, writable, onSent }: Threa
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
           />
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            aria-label="attach files"
+            onChange={(e) => {
+              pick(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+          <Button
+            disabled={!writable || !connected}
+            title="Attach files (up to 25 MB each)"
+            onClick={() => fileInput.current?.click()}
+          >
+            📎
+          </Button>
           <Button variant="primary" disabled={!canSend} onClick={() => void send()}>
             {busy ? "sending…" : "Send"}
           </Button>

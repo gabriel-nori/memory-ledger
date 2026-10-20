@@ -1295,8 +1295,8 @@ def thread(con: sqlite3.Connection, peer_id: str, limit: int = 500,
            before: str = "") -> list[dict[str, Any]]:
     """Messages with one peer, both ways, oldest first: the newest `limit`, or
     the newest `limit` sent before the time `before`. A message with files says
-    what they are (`files`: the names and, for a received one, where they were
-    unpacked and whether they arrived)."""
+    their names (`files`) and, for a received one, whether they arrived and where
+    they were unpacked (`attachment`: state, error, dir)."""
     return thread_page(con, peer_id, limit, before)["messages"]
 
 
@@ -1312,7 +1312,8 @@ def thread_page(con: sqlite3.Connection, peer_id: str, limit: int = THREAD_PAGE,
         "SELECT * FROM b2b_sent WHERE peer_id=?", (peer_id,))]
     for m in msgs:
         if m["direction"] == "in" and m["id"] in got:
-            m["files"] = got[m["id"]]
+            m["files"] = got[m["id"]]["names"]
+            m["attachment"] = {k: got[m["id"]][k] for k in ("state", "error", "dir")}
     if before:
         msgs = [m for m in msgs if m["at"] < before]
     msgs.sort(key=lambda m: m["at"])

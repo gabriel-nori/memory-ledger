@@ -179,8 +179,9 @@ export const api = {
     get<import("./types").B2BStatus>("/api/b2b", undefined, signal),
   b2bConversations: (signal?: AbortSignal) =>
     get<import("./types").B2BConversations>("/api/b2b-conversations", undefined, signal),
-  b2bThread: (peer: string, signal?: AbortSignal) =>
-    get<import("./types").B2BThread>("/api/b2b-thread", { peer }, signal),
+  /** A page of 20, the latest or the one before `before` (a time). */
+  b2bThread: (peer: string, before = "", signal?: AbortSignal) =>
+    get<import("./types").B2BThread>("/api/b2b-thread", before ? { peer, before } : { peer }, signal),
   capture: (signal?: AbortSignal) =>
     get<import("./types").CaptureState>("/api/capture", undefined, signal),
   doctor: (signal?: AbortSignal) =>
@@ -288,8 +289,13 @@ export const api = {
   setB2BAllowed: (body: { user_id: string; enabled: boolean; name?: string }) =>
     post<{ ok: boolean; allowed: import("./types").B2BAllowed[] }>("/api/b2b-allowed", body),
   /** `human`: typed in the Messages chat. Every other sender is shown as automated. */
-  sendB2B: (to: string, text: string, human = false) =>
-    post<import("./types").B2BSendResult>("/api/b2b-send", human ? { to, text, human } : { to, text }),
+  sendB2B: (to: string, text: string, human = false, files: string[] = []) =>
+    post<import("./types").B2BSendResult>("/api/b2b-send", {
+      to,
+      text,
+      ...(human ? { human } : {}),
+      ...(files.length ? { files } : {}),
+    }),
   /** Save a file the owner attached to the chat under <home>/attachments (base64). No model call. */
   attachFile: (name: string, data: string) =>
     post<import("./types").AgentAttachResult>("/api/agent-attach", { name, data }),
