@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -90,6 +91,8 @@ ATTACHMENTS_DIR = "chat_attachments"
 MSG_ID_RE = r"[0-9a-f]{32}"
 # A staged message is tried again for these: the relay was out of reach or full.
 # Anything else (a bad request, a refused file) is final.
+# A file already on the relay is trusted for this long (its TTL is 7 days)
+UPLOAD_REUSE_S = 86_400
 RETRY_STATUSES = (0, 429, 503, 507)
 ATTACHMENT_TRIES = 50          # a download that keeps failing is given up on
 # A session this close to its end is renewed rather than used.
@@ -481,7 +484,7 @@ def _call(method: str, url: str, body: dict[str, Any] | None = None,
         err = B2BError(f"broker said {e.code}: {why}")
         err.status = e.code  # type: ignore[attr-defined]
         raise err from None
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
         raise B2BError(f"could not reach the broker at {url}: {e}") from None
 
 
@@ -504,7 +507,8 @@ def _call_raw(method: str, url: str, data: bytes | None = None,
         err = B2BError(f"broker said {e.code}: {why}")
         err.status = e.code  # type: ignore[attr-defined]
         raise err from None
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+        # HTTPException covers IncompleteRead: a download cut short is a broker out of reach
         raise B2BError(f"could not reach the broker at {url}: {e}") from None
 
 
@@ -926,8 +930,14 @@ def deliver_staged(cfg: dict[str, Any], con: sqlite3.Connection,
         blob = c.seal_file(c.unb64(f["key"]), c.unb64(f["nonce"]), f["id"], zipped)
         sha = hashlib.sha256(blob).hexdigest()
         me = c.user_id_of(private_key(cfg))
-        _call_raw("POST", f"{broker['url']}/files?id={f['id']}&from={me}"
-                          f"&to={row['peer_id']}&sha256={sha}", blob)
+        # Only the message failed last time: the relay still holds the file (it keeps one for
+        # days), so a retry does not send up to 50 MB again.
+        if time.time() - float(meta.get("uploaded_at") or 0) > UPLOAD_REUSE_S:
+            _call_raw("POST", f"{broker['url']}/files?id={f['id']}&from={me}"
+                              f"&to={row['peer_id']}&sha256={sha}", blob)
+            meta["uploaded_at"] = time.time()
+            _write_private(sent_dir(row["peer_id"], msg_id) / "message.json",
+                           json.dumps(meta, indent=2).encode("utf-8"))
         env = c.seal(private_key(cfg), row["peer_id"], {
             "text": meta["text"], "sent_at": meta["sent_at"], "human": bool(meta["human"]),
             "files": [{"id": f["id"], "key": f["key"], "nonce": f["nonce"], "sha256": sha,

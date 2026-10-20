@@ -10,6 +10,10 @@ schema setup falls straight back to SQLite, in the file `$B2B_SQLITE_PATH`
 (default `~/.local/share/memory-ledger/b2b-relay.db`). `Db.backend` says which
 one is in use. Files are stored as blobs in either.
 
+When PostgreSQL is configured but fails, the fallback is logged as an ERROR, and
+mail left in SQLite is not visible once PostgreSQL is back. Set
+`B2B_DB_STRICT=1` to refuse to start instead (`RuntimeError`).
+
 Sessions and challenges are not stored: they live in the relay's memory, and a
 restart only makes brains log in again.
 """
@@ -40,6 +44,7 @@ CREATE TABLE IF NOT EXISTS messages (
     envelope  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient, ts);
+CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts);
 CREATE TABLE IF NOT EXISTS files (
     id        TEXT PRIMARY KEY,
     sender    TEXT NOT NULL,
@@ -50,6 +55,7 @@ CREATE TABLE IF NOT EXISTS files (
     data      {blob} NOT NULL
 );
 CREATE INDEX IF NOT EXISTS files_recipient ON files(recipient, sender);
+CREATE INDEX IF NOT EXISTS files_ts ON files(ts);
 """
 
 
@@ -129,7 +135,11 @@ class Db:
                 pass
             self._con = None
             self.fallback_reason = f"PostgreSQL failed ({type(e).__name__}: {e})"
-            print(f"b2b: {self.fallback_reason}; using SQLite", file=sys.stderr, flush=True)
+            if (os.environ.get("B2B_DB_STRICT") or "").strip().lower() in ("1", "true", "yes"):
+                raise RuntimeError(f"{self.fallback_reason}; B2B_DB_STRICT is set, "
+                                   "not falling back to SQLite") from e
+            print(f"b2b: ERROR: {self.fallback_reason}; FALLING BACK TO SQLITE. Mail now "
+                  "written is not visible once PostgreSQL is back", file=sys.stderr, flush=True)
             self._open_sqlite()
 
     def _connect_pg(self) -> Any:
@@ -189,8 +199,24 @@ class Db:
 class Mailbox:
     """Messages and files, on a `Db`. The caps are the caller's to pass."""
 
+    SWEEP_EVERY_S = 60              # the sweep is a write transaction: not on every call
+
     def __init__(self, db: Db) -> None:
         self.db = db
+        self._last_sweep = 0.0
+
+    def sweep(self, files_s: float, messages_s: float, force: bool = False) -> int:
+        """Delete files unread for `files_s` seconds and messages unread for
+        `messages_s`, at most once a minute unless `force`. How many went."""
+        now = time.time()
+        if not force and now - self._last_sweep < self.SWEEP_EVERY_S:
+            return 0
+        self._last_sweep = now
+        with self.db.tx() as t:
+            t.q("DELETE FROM files WHERE ts < ?", (now - files_s,))
+            gone = t.rowcount
+            t.q("DELETE FROM messages WHERE ts < ?", (now - messages_s,))
+            return gone + t.rowcount
 
     def sweep_files(self, older_than_s: float) -> int:
         """Delete files nobody downloaded in `older_than_s` seconds."""
@@ -229,11 +255,12 @@ class Mailbox:
 
     # -- files
     def put_file(self, file_id: str, sender: str, to: str, sha256: str, data: bytes,
-                 quota: int) -> bool:
+                 quota: int, total_max: int = 0) -> bool:
         """Store a sealed file for `to`. True when stored, False when this exact
         file (same id, sender, recipient and hash) was already there: an upload
-        retried. `OverflowError` when `to` would hold more than `quota` bytes,
-        `ValueError` when the id is taken by something else."""
+        retried. `OverflowError` ("quota") when `to` would hold more than `quota`
+        bytes, `OverflowError` ("full") when the relay would hold more than
+        `total_max` (0: no cap), `ValueError` when the id is taken by something else."""
         with self.db.tx() as t:
             have = t.q("SELECT sender, recipient, sha256 FROM files WHERE id=?", (file_id,))
             if have:
@@ -243,6 +270,10 @@ class Mailbox:
             used = t.q("SELECT COALESCE(SUM(size), 0) FROM files WHERE recipient=?", (to,))[0][0]
             if int(used) + len(data) > quota:
                 raise OverflowError("quota")
+            if total_max:
+                total = t.q("SELECT COALESCE(SUM(size), 0) FROM files")[0][0]
+                if int(total) + len(data) > total_max:
+                    raise OverflowError("full")
             t.q("INSERT INTO files(id, sender, recipient, size, sha256, ts, data) "
                 "VALUES(?,?,?,?,?,?,?)", (file_id, sender, to, len(data), sha256,
                                           time.time(), data))

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
@@ -216,6 +216,19 @@ function Thread({ peer, conversation, latest, error, writable, onSent }: ThreadP
     const seen = new Set(latest.messages.map(msgKey));
     return [...older.filter((m) => !seen.has(msgKey(m))), ...latest.messages];
   }, [older, latest]);
+  // Where the first older page began. If the latest page moves past it (more than a page of new
+  // messages), the ones in between would be missing; and a message of ours still staged out
+  // there would never show its new status. Either way, the history read so far is dropped and
+  // "load older" starts from the latest page again.
+  const anchor = useRef("");
+  useEffect(() => {
+    if (!latest || older.length === 0) return;
+    const gap = latest.has_more && latest.next_before > anchor.current;
+    if (gap || older.some((m) => m.status === "staged")) {
+      setOlder([]);
+      setCursor(null);
+    }
+  }, [latest]); // eslint-disable-line react-hooks/exhaustive-deps
   const more = cursor ? cursor.more : !!latest?.has_more;
   const before = cursor ? cursor.before : (latest?.next_before ?? "");
 
@@ -225,6 +238,7 @@ function Thread({ peer, conversation, latest, error, writable, onSent }: ThreadP
     stick.current = false;
     try {
       const page = await api.b2bThread(peer, before);
+      if (older.length === 0) anchor.current = before;
       setOlder((all) => [...page.messages, ...all]);
       setCursor({ more: page.has_more, before: page.next_before });
     } catch (err) {

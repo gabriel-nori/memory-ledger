@@ -18,7 +18,10 @@ A user id is an X25519 public key; the private key stays with its brain.
 - `POST /files?id&from&to&sha256` (body: the sealed file) leaves a file, up to 50 MB
   each and 500 MB waiting per recipient (`507` past that: the sender keeps it
   staged and retries). `GET /files/{id}` (bearer) downloads it; `DELETE /files/{id}`
-  removes it once the hash checks. A file nobody downloads goes after 7 days.
+  removes it once the hash checks. A file nobody downloads goes after 7 days, a
+  message nobody reads after 30 (`B2B_MESSAGE_TTL_S`). The relay as a whole holds at
+  most 20 GB of files (`B2B_TOTAL_BYTES`) and takes 8 uploads at once
+  (`B2B_UPLOADS_MAX`); past either, `507` / `503`, and the sender retries.
 - `POST /refusals {from}` (bearer) deletes every message and file that sender left
   for you.
 
@@ -26,7 +29,9 @@ There are no accounts. Messages and files are stored in PostgreSQL when all of
 `B2B_DB_USER`, `B2B_DB_PASSWORD`, `B2B_DB_NAME`, `B2B_DB_URL` (host) and
 `B2B_DB_PORT` are set and the connection works; otherwise, or on any failure at
 start-up, in SQLite (`$B2B_SQLITE_PATH`, default
-`~/.local/share/memory-ledger/b2b-relay.db`). `/health` says which. Retrieval
+`~/.local/share/memory-ledger/b2b-relay.db`). `/health` says which. The fallback is
+logged as an ERROR, and mail written to SQLite is not visible once PostgreSQL is
+back: set `B2B_DB_STRICT=1` to refuse to start instead. Retrieval
 tokens (as hashes) stay in memory: a restart only makes brains log in again.
 
 The design, the crypto, and how a brain uses it: [docs/b2b.md](../../docs/b2b.md).

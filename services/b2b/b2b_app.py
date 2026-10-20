@@ -21,10 +21,11 @@ PostgreSQL or SQLite), the sealed messages and files waiting to be read.
   deletes them from the relay. A message is read once, and an emptied mailbox
   is forgotten.
 * `POST /files?id&from&to&sha256` (the body is the sealed file, raw bytes) leaves
-  a file for `to`, up to `FILE_MAX` each and `QUOTA_BYTES` waiting per recipient.
+  a file for `to`, up to `FILE_MAX` each, `QUOTA_BYTES` waiting per recipient and `TOTAL_BYTES`
+  on the relay, with at most `UPLOADS_MAX` uploads at once (503).
   `GET /files/{id}` (bearer) returns it to its recipient and `DELETE /files/{id}`
   removes it once the recipient has checked the hash. One nobody downloads goes
-  after `FILE_TTL_S`.
+  after `FILE_TTL_S`, an unread message after `MESSAGE_TTL_S`.
 * `POST /refusals {from}` (bearer) is a recipient refusing a sender: every
   message and file that sender left for the caller is deleted.
 
@@ -69,6 +70,10 @@ QUEUE_MAX = 500
 FILE_MAX = int(os.environ.get("B2B_FILE_MAX") or 50 * 1024 * 1024)
 QUOTA_BYTES = int(os.environ.get("B2B_QUOTA_BYTES") or 500 * 1024 * 1024)
 FILE_TTL_S = 7 * 86_400         # a file nobody downloads is deleted after this
+MESSAGE_TTL_S = int(os.environ.get("B2B_MESSAGE_TTL_S") or 30 * 86_400)  # and a message
+# files waiting on the whole relay, and uploads in flight (each is buffered in memory)
+TOTAL_BYTES = int(os.environ.get("B2B_TOTAL_BYTES") or 20 * 1024 * 1024 * 1024)
+UPLOADS_MAX = int(os.environ.get("B2B_UPLOADS_MAX") or 8)
 MAILBOXES_MAX = 10_000          # recipients with unread messages
 CHALLENGES_PER_USER = 5
 CHALLENGE_TTL_S = 120
@@ -203,6 +208,7 @@ class Store:
         if env["from"] != sender:
             raise ValueError("from must match envelope.from")
         sent_at = now_iso()
+        self.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
         self.mail.put_message(env["id"], to, sender, sent_at, json.dumps(env), QUEUE_MAX,
                               MAILBOXES_MAX)
         return {"id": env["id"], "to": to, "sent_at": sent_at}
@@ -212,7 +218,7 @@ class Store:
         from the relay. Only the ones returned are deleted, so a message that
         arrives during the call waits for the next one."""
         user_id = self.whoami(token)
-        self.mail.sweep_files(FILE_TTL_S)
+        self.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
         return [{"id": mid, "from": sender, "at": at, "envelope": json.loads(env)}
                 for mid, sender, at, env in self.mail.take_messages(user_id)]
 
@@ -247,6 +253,7 @@ def _clean_envelope(env: Any) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------- http
+_uploading = 0
 DB = Db()
 STORE = Store(Mailbox(DB))
 app = FastAPI(title="B2B — Brain 2 Brain", version=VERSION,
@@ -364,7 +371,8 @@ async def post_files(request: Request, id: str = "",
     """The body is the sealed file, raw bytes. Query: `id` (32 hex, chosen by the
     sender so a retry is the same file), `from`, `to`, and `sha256` (hex) of the
     body. Refused, never cut, when over `FILE_MAX` (413) or when it would take
-    the recipient past `QUOTA_BYTES` (507)."""
+    the recipient past `QUOTA_BYTES` (507), the relay past `TOTAL_BYTES` (507), or
+    when `UPLOADS_MAX` uploads are already running (503)."""
     q = request.query_params
     sender, to = q.get("from", ""), q.get("to", "")
     if not (ID_RE.fullmatch(sender) and ID_RE.fullmatch(to)):
@@ -374,20 +382,36 @@ async def post_files(request: Request, id: str = "",
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > FILE_MAX:
         return _err(413, f"a file is at most {FILE_MAX} bytes")
-    chunks, size = [], 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > FILE_MAX:
-            return _err(413, f"a file is at most {FILE_MAX} bytes")
-        chunks.append(chunk)
-    data = b"".join(chunks)
+    global _uploading
+    if _uploading >= UPLOADS_MAX:        # no await between this check and the increment
+        return _err(503, "the relay is busy with other uploads; retry shortly")
+    _uploading += 1
+    try:
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > FILE_MAX:
+                return _err(413, f"a file is at most {FILE_MAX} bytes")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        del chunks
+        return await _accept_file(id, sender, to, sha256, data)
+    finally:
+        _uploading -= 1
+
+
+async def _accept_file(id: str, sender: str, to: str, sha256: str,
+                       data: bytes) -> JSONResponse:
+    """Check and store a fully received body."""
     if not data:
         return _err(400, "the file is empty")
     if hashlib.sha256(data).hexdigest() != sha256:
         return _err(400, "sha256 does not match the body")
     try:
         stored = await run_in_threadpool(_store_file, id, sender, to, sha256, data)
-    except OverflowError:
+    except OverflowError as e:
+        if "full" in str(e):
+            return _err(507, "the relay has no room for more files right now")
         return _err(507, f"{to} already has {QUOTA_BYTES} bytes of files waiting")
     except ValueError as e:
         return _err(409, str(e))
@@ -396,8 +420,8 @@ async def post_files(request: Request, id: str = "",
 
 
 def _store_file(file_id: str, sender: str, to: str, sha256: str, data: bytes) -> bool:
-    STORE.mail.sweep_files(FILE_TTL_S)
-    return STORE.mail.put_file(file_id, sender, to, sha256, data, QUOTA_BYTES)
+    STORE.mail.sweep(FILE_TTL_S, MESSAGE_TTL_S)
+    return STORE.mail.put_file(file_id, sender, to, sha256, data, QUOTA_BYTES, TOTAL_BYTES)
 
 
 @app.get("/files/{file_id}", summary="Download a file left for me", response_model=None)
