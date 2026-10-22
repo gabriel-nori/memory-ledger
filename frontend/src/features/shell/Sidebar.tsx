@@ -2,25 +2,27 @@ import { NavLink } from "react-router-dom";
 import { useMeta } from "@/api/MetaContext";
 import { API_DOCS_URL } from "@/features/apidocs/ApiDocsSection";
 import "./Sidebar.css";
+import { Icon } from "@/components";
+import type { IconName } from "@/components";
 
 export interface SectionLink {
   to: string;
   label: string;
-  icon: string;
+  icon: IconName;
   /** Pinned to the bottom, under the divider. */
   foot?: boolean;
 }
 
 export const SECTIONS: SectionLink[] = [
-  { to: "/map", label: "Map", icon: "🗺" },
-  { to: "/dashboard", label: "Dashboard", icon: "📋" },
-  { to: "/tasks", label: "Tasks", icon: "▤" },
-  { to: "/people", label: "People", icon: "👥" },
-  { to: "/messages", label: "Messages", icon: "💬" },
-  { to: "/agents", label: "Agents", icon: "🤖" },
-  { to: "/usage", label: "Usage", icon: "📈" },
-  { to: "/capabilities", label: "Capabilities", icon: "🧩" },
-  { to: "/settings", label: "Settings", icon: "⚙", foot: true },
+  { to: "/map", label: "Map", icon: "map" },
+  { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
+  { to: "/tasks", label: "Tasks", icon: "tasks" },
+  { to: "/people", label: "People", icon: "people" },
+  { to: "/messages", label: "Messages", icon: "message" },
+  { to: "/agents", label: "Agents", icon: "sparkle" },
+  { to: "/usage", label: "Usage", icon: "chart" },
+  { to: "/capabilities", label: "Capabilities", icon: "cube" },
+  { to: "/settings", label: "Settings", icon: "sliders", foot: true },
 ];
 
 export interface SidebarProps {
@@ -47,7 +49,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       className={({ isActive }) => `ml-side__link${isActive ? " is-active" : ""}`}
       onClick={onClose}
     >
-      <span aria-hidden="true">{s.icon}</span>
+      <Icon name={s.icon} />
       <span>{s.label}</span>
     </NavLink>
   );
@@ -59,14 +61,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="ml-side__head">
           {brain && brain !== "Brain" ? (
             <span title="second-brain">
-              🧠 <b>{brain}</b>
+              <Icon name="brain" /> <b>{brain}</b>
             </span>
           ) : (
             <span>
-              🧠 second-<b>brain</b>
+              <Icon name="brain" /> second-<b>brain</b>
             </span>
           )}
-          <button type="button" className="ml-side__x" onClick={onClose} aria-label="close sections">✕</button>
+          <button type="button" className="ml-side__x" onClick={onClose} aria-label="close sections"><Icon name="close" /></button>
         </div>
         <nav className="ml-side__nav">{main.map(item)}</nav>
         <div className="ml-side__foot">
@@ -85,7 +87,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               }
               onClick={onClose}
             >
-              <span aria-hidden="true">📖</span>
+              <Icon name="book" />
               <span>API docs</span>
             </NavLink>
             <a
@@ -97,7 +99,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               aria-label="open the API docs in a new tab"
               onClick={onClose}
             >
-              ↗
+              <Icon name="external" />
             </a>
           </div>
           {foot.map(item)}

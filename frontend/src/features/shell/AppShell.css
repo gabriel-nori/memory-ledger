@@ -3,10 +3,13 @@
   width: 36px; height: 34px; z-index: var(--z-burger);
   display: flex; align-items: center; justify-content: center;
   font-size: 16px; cursor: pointer; color: var(--fg); padding: 0;
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); backdrop-filter: blur(8px); box-shadow: var(--shadow-panel);
+  background: var(--panel); border: 0.5px solid var(--border); border-top-color: var(--material-edge);
+  border-radius: var(--radius); backdrop-filter: var(--blur-chip); -webkit-backdrop-filter: var(--blur-chip);
+  box-shadow: var(--shadow-panel);
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring);
 }
-.ml-burger:hover { border-color: var(--accent); }
+.ml-burger:hover { background: var(--press); }
+.ml-burger:active { transform: scale(0.94); transition-duration: var(--t-press); }
 .ml-shell__meta-error {
   position: fixed; top: var(--space-4); left: 60px; right: var(--space-4);
   z-index: var(--z-panel); max-width: 720px; margin: 0 auto;

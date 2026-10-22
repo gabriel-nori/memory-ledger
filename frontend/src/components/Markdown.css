@@ -1,11 +1,11 @@
 .ml-md { display: flex; flex-direction: column; gap: var(--space-2); }
 .ml-md > * { margin: 0; }
 .ml-md h3, .ml-md h4, .ml-md h5, .ml-md h6 { line-height: 1.3; }
-.ml-md h3 { font-size: 16px; } .ml-md h4 { font-size: 14px; } .ml-md h5, .ml-md h6 { font-size: 13px; }
+.ml-md h3 { font-size: 17px; letter-spacing: var(--track-large); } .ml-md h4 { font-size: 15px; } .ml-md h5, .ml-md h6 { font-size: 13px; }
 .ml-md ul, .ml-md ol { padding-left: var(--space-5); }
-.ml-md blockquote { padding-left: var(--space-3); border-left: 3px solid var(--border); color: var(--muted); }
+.ml-md blockquote { padding-left: var(--space-3); border-left: 3px solid var(--press); color: var(--muted); }
 .ml-md hr { width: 100%; border: 0; border-top: 1px solid var(--border); }
 .ml-md__table { overflow-x: auto; }
 .ml-md table { border-collapse: collapse; font-size: 12px; }
-.ml-md th, .ml-md td { padding: 4px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.ml-md th, .ml-md td { padding: 4px 10px; border: 0.5px solid var(--border); text-align: left; vertical-align: top; }
 .ml-md th { background: var(--hover); }

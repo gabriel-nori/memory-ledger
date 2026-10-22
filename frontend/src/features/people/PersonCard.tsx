@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Spinner, StatusMessage } from "@/components";
+import { Badge, Spinner, StatusMessage, Icon } from "@/components";
 import { humanize } from "@/lib/format";
 import type { NodeDetail, NodeEdge, Person } from "@/api/types";
 import "./PeopleSection.css";
@@ -52,7 +52,7 @@ export function PersonCard({
           </span>
         ) : null}
         <span className="ml-person__chevron" aria-hidden="true">
-          {open ? "▾" : "▸"}
+          <Icon name={open ? "chevron-down" : "chevron-right"} />
         </span>
       </button>
 
@@ -81,7 +81,7 @@ export function PersonCard({
                 {edges.map((e) => (
                   <li key={`${e.dir}-${e.rel}-${e.id}`}>
                     <span className="ml-person__dir" aria-hidden="true">
-                      {e.dir === "out" ? "→" : "←"}
+                      <Icon name={e.dir === "out" ? "arrow-right" : "arrow-left"} />
                     </span>
                     <span className="ml-person__type">{e.type || "node"}</span>
                     <span className="ml-person__title">{e.title}</span>

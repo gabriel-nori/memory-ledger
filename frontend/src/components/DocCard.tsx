@@ -8,6 +8,7 @@ import { Modal } from "./Modal";
 import { Spinner, StatusMessage } from "./Feedback";
 import { Markdown } from "./Markdown";
 import "./DocCard.css";
+import { Icon } from "./Icon";
 
 /**
  * A document an agent wrote: collapsed it is only its name and an Expand
@@ -49,7 +50,7 @@ export function DocCard({ name, path, area = "exports" }: { name: string; path: 
   return (
     <>
       <div className="ml-doc">
-        <span className="ml-doc__icon" aria-hidden="true">▤</span>
+        <span className="ml-doc__icon" aria-hidden="true"><Icon name="file" /></span>
         <span className="ml-doc__name" title={path}>{name}</span>
         <Button size="sm" onClick={() => setOpen(true)} aria-label={`Expand ${name}`}>
           Expand

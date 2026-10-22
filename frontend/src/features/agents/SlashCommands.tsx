@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
-import { Checkbox, StatusMessage } from "@/components";
+import { Checkbox, StatusMessage, Icon } from "@/components";
 import { truncate } from "@/lib/format";
 import type { AgentCommand, AgentCommands } from "@/api/types";
 
@@ -148,7 +148,7 @@ export function PluginsMenu({
       <button type="button" className="ml-pick__btn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         Plugins
         <span className="ml-pick__model">{plugins.filter((p) => p.enabled).length} on</span>
-        <span className="ml-pick__caret" aria-hidden="true">▴</span>
+        <span className="ml-pick__caret" aria-hidden="true"><Icon name="chevron-up" /></span>
       </button>
       {open ? (
         <div className="ml-pick__menu ml-plugins" role="dialog" aria-label="plugins">

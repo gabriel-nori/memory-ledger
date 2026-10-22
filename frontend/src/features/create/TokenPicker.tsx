@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, Button, SearchInput } from "@/components";
+import { Badge, Button, SearchInput, Icon } from "@/components";
 import "./TokenPicker.css";
 
 export interface TokenOption {
@@ -57,7 +57,7 @@ export function TokenPicker({
                 aria-label={`remove ${labels.get(v) ?? v}`}
                 onClick={() => onChange(value.filter((x) => x !== v))}
               >
-                ✕
+                <Icon name="close" />
               </button>
             </span>
           ))

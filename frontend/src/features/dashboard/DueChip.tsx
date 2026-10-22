@@ -3,6 +3,7 @@ import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
 import type { TaskRow } from "@/api/types";
 import "./DueChip.css";
+import { Icon } from "@/components";
 
 export interface DueChipProps {
   row: TaskRow;
@@ -60,7 +61,7 @@ export function DueChip({ row, today, onChanged }: DueChipProps) {
         setEditing(true);
       }}
     >
-      {has ? `⏱ ${current}` : "📅 not set"}
+      {has ? <><Icon name="clock" /> {current}</> : <><Icon name="calendar" /> not set</>}
     </button>
   );
 }

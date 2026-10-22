@@ -1,24 +1,27 @@
-.ml-people__h { margin: 0 0 var(--space-2); font-size: 14px; display: flex; align-items: center; gap: var(--space-2); }
+.ml-people__h { margin: 0 0 var(--space-2); font-size: 17px; letter-spacing: var(--track-title); display: flex; align-items: center; gap: var(--space-2); }
 .ml-people__hint { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 var(--space-4); }
 
 .ml-people__grid { display: flex; flex-direction: column; gap: var(--space-2); }
 
 /* One person. Collapsed it is a row; open it is the neighbourhood. */
 .ml-person {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--panel); overflow: hidden;
+  border: 0.5px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--panel-solid); overflow: hidden;
+  transition: box-shadow var(--t-move) var(--ease-spring);
 }
-.ml-person.is-open { border-color: var(--accent); }
+.ml-person.is-open { box-shadow: 0 0 0 1.5px var(--accent); }
 .ml-person__head {
   display: flex; align-items: center; gap: var(--space-3); width: 100%;
   padding: var(--space-3) var(--space-4); background: none; border: 0;
   color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
 .ml-person__head:hover { background: var(--hover); }
+.ml-person__head:active { background: var(--press); transition-duration: var(--t-press); }
 .ml-person__name { font-weight: 600; }
 .ml-person__aliases { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-person__chevron { margin-left: auto; color: var(--muted); }
-.ml-person__body { padding: 0 var(--space-4) var(--space-4); border-top: 1px solid var(--border); }
+.ml-person__body { padding: 0 var(--space-4) var(--space-4); border-top: 0.5px solid var(--border); }
 
 .ml-person__rel { margin-top: var(--space-4); }
 .ml-person__relname {
@@ -31,7 +34,7 @@
 .ml-person__links { list-style: none; margin: 0; padding: 0; font-size: 12px; }
 .ml-person__links li {
   display: flex; align-items: baseline; gap: var(--space-2);
-  padding: var(--space-1) 0; border-bottom: 1px solid var(--border);
+  padding: var(--space-1) 0; border-bottom: 0.5px solid var(--border);
 }
 .ml-person__dir { color: var(--muted); }
 .ml-person__type { color: var(--muted); font-size: 10.5px; min-width: 62px; }
@@ -39,17 +42,17 @@
 
 .ml-person__alias-form {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
-  margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border);
+  margin-top: var(--space-5); padding-top: var(--space-4); border-top: 0.5px solid var(--border);
 }
 .ml-person__alias-label { color: var(--muted); font-size: 11.5px; }
 .ml-person__alias-input { max-width: 220px; }
 
 /* A duplicate group: every spelling, with the one being kept marked. */
-.ml-dupe { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-3); }
+.ml-dupe { border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); margin-bottom: var(--space-3); }
 .ml-dupe__list { list-style: none; margin: 0; padding: 0; }
 .ml-dupe__row {
   display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-  padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+  padding: var(--space-2) 0; border-bottom: 0.5px solid var(--border);
 }
 .ml-dupe__row:last-child { border-bottom: 0; }
 .ml-dupe__row.is-keep .ml-dupe__name { font-weight: 600; }

@@ -1,9 +1,10 @@
 .ml-badge {
-  display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 20px;
-  border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  display: inline-block; font-size: 11px; font-weight: 500; letter-spacing: var(--track-small);
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--hover); color: var(--muted);
 }
-.ml-badge--accent { color: var(--accent); border-color: var(--accent); }
-.ml-badge--success { color: var(--success); border-color: var(--success); }
-.ml-badge--warn { color: var(--warn); border-color: var(--warn); }
-.ml-badge--danger { color: var(--danger); border-color: var(--danger); }
-.ml-badge--type { border: 0; }
+.ml-badge--accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ml-badge--success { color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent); }
+.ml-badge--warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.ml-badge--danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, transparent); }
+.ml-badge--type { background: transparent; padding-inline: 0; }

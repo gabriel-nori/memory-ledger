@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
-import { Button, Select, StatusMessage, TextInput } from "@/components";
+import { Button, Select, StatusMessage, TextInput, Icon } from "@/components";
 import { useDebounced } from "@/hooks/useDebounced";
 import type { NodeDetail, SearchHit } from "@/api/types";
 import "./RelationEditor.css";
@@ -78,7 +78,7 @@ export function RelationEditor({ node, onChanged }: RelationEditorProps) {
       {edges.map((e, i) => (
         <div className="ml-relations__row" key={`${e.dir}-${e.rel}-${e.id}-${i}`}>
           <span>
-            {e.dir === "out" ? "→ " : "← "}
+            <Icon name={e.dir === "out" ? "arrow-right" : "arrow-left"} />{" "}
             {e.rel}: {e.title} <em>({e.type})</em>
           </span>
           {writable ? (

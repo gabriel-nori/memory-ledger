@@ -1,48 +1,55 @@
+/* Controls answer the press instantly (scale on :active, 100ms) and settle on
+   release with the critically damped curve. Hover is a quiet fill, not a
+   coloured border. */
 .ml-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid var(--border);
-  background: var(--bg-sunken);
+  border: 0;
+  background: var(--hover);
   color: var(--fg);
   border-radius: var(--radius);
   font: inherit;
+  letter-spacing: var(--track-body);
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-move) var(--ease-spring), filter var(--t-fast) var(--ease-out);
 }
-.ml-btn:hover:not(:disabled) { border-color: var(--accent); }
-.ml-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ml-btn:hover:not(:disabled) { background: var(--press); }
+.ml-btn:active:not(:disabled) { transform: scale(0.97); transition-duration: var(--t-press); }
+.ml-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.ml-btn--sm { padding: 2px 8px; font-size: 11px; }
-.ml-btn--md { padding: 6px 9px; font-size: 12.5px; }
+.ml-btn--sm { padding: 3px 10px; font-size: 12px; border-radius: var(--radius-sm); }
+.ml-btn--md { padding: 7px 14px; font-size: 13px; font-weight: 500; }
 
 .ml-btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-solid);
   color: var(--accent-fg);
   font-weight: 600;
 }
-.ml-btn--primary:hover:not(:disabled) { filter: brightness(1.08); }
+.ml-btn--primary:hover:not(:disabled) { background: var(--accent-solid); filter: brightness(1.12); }
 
-.ml-btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
-.ml-btn--ghost:hover:not(:disabled) { background: var(--hover); color: var(--fg); border-color: transparent; }
+.ml-btn--ghost { background: transparent; color: var(--muted); }
+.ml-btn--ghost:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
 
-.ml-btn--danger { color: var(--danger); }
-.ml-btn--danger:hover:not(:disabled) { border-color: var(--danger); }
+.ml-btn--danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.ml-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 24%, transparent); }
 
+/* Navigation rows change colour only; they fill the width, so no scale. */
 .ml-btn--nav {
   display: flex;
   width: 100%;
   text-align: left;
-  border: 0;
   background: transparent;
-  border-radius: 8px;
-  padding: 8px 9px;
-  font-size: 13.5px;
-  gap: 9px;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 14px;
+  gap: 10px;
 }
-.ml-btn--nav:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
-.ml-btn--nav.is-active { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.ml-btn--nav:hover:not(:disabled) { background: var(--hover); }
+.ml-btn--nav:active:not(:disabled) { transform: none; background: var(--press); }
+.ml-btn--nav.is-active { background: var(--accent-solid); color: var(--accent-fg); font-weight: 600; }
 
-.ml-btn.is-active:not(.ml-btn--nav) { border-color: var(--accent); color: var(--accent); }
+.ml-btn.is-active:not(.ml-btn--nav) { background: var(--selected); color: var(--accent); }
 .ml-btn__icon { display: inline-flex; line-height: 1; }

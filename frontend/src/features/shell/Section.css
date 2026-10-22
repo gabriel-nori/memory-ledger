@@ -7,9 +7,9 @@
    top-left corner; whatever is under it makes room itself. */
 .ml-section--fill.ml-section--bare { padding-top: var(--space-4); }
 .ml-section__bar { display: flex; align-items: center; gap: var(--space-3); }
-.ml-section__title { margin: 0 0 4px; font-size: 18px; }
+.ml-section__title { margin: 0 0 4px; font-size: 28px; line-height: 1.1; font-weight: 700; letter-spacing: var(--track-large); }
 .ml-section__actions { margin-left: auto; }
 .ml-section__lead {
-  color: var(--muted); margin: 0 0 18px; font-size: 12.5px; line-height: 1.5;
+  color: var(--muted); margin: 0 0 var(--space-5); font-size: 13px; line-height: 1.5;
 }
 .ml-section__lead code { color: var(--fg); }

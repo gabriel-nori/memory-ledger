@@ -1,0 +1,6 @@
+/* Sized in em so a symbol scales with the text around it; nudged down so it
+   sits on the text's optical centre rather than on the baseline. */
+.ml-icon {
+  width: 1.15em; height: 1.15em; flex: none;
+  vertical-align: -0.2em; overflow: visible;
+}

@@ -1,6 +1,6 @@
 .ml-map__hint {
   position: fixed; bottom: var(--space-4); left: var(--space-4);
-  color: var(--muted); padding: var(--space-2) 10px; font-size: 11px; z-index: var(--z-panel);
+  color: var(--muted); padding: var(--space-2) var(--space-3); font-size: 11px; z-index: var(--z-panel);
 }
 .ml-map__err {
   position: fixed; bottom: var(--space-4); right: var(--space-4);

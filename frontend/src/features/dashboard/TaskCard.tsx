@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, Select, StatusMessage, TextArea, TextInput } from "@/components";
+import { Badge, Button, Card, Select, StatusMessage, TextArea, TextInput, Icon } from "@/components";
 import { RelationEditor } from "./RelationEditor";
 import { DueChip } from "./DueChip";
 import type { NodeDetail, TaskRow } from "@/api/types";
@@ -29,7 +29,7 @@ export function TaskCard({ row, today, onChanged, onFacetsChanged }: TaskCardPro
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "▾ " : "▸ "}
+        <Icon name={open ? "chevron-down" : "chevron-right"} />{" "}
         {row.title || "(untitled)"}
       </button>
 
@@ -37,15 +37,15 @@ export function TaskCard({ row, today, onChanged, onFacetsChanged }: TaskCardPro
         <DueChip row={row} today={today} onChanged={onChanged} />
         {row.type ? <Badge>{row.type}</Badge> : null}
         {row.status ? <Badge tone={toneForStatus(row.status)}>{row.status}</Badge> : null}
-        {row.assignee ? <Badge>👤 {row.assignee}</Badge> : null}
+        {row.assignee ? <Badge><Icon name="user" /> {row.assignee}</Badge> : null}
         {row.realm ? <Badge>{row.realm}</Badge> : null}
         {row.kind && row.kind !== "(none)" ? <Badge>{row.kind}</Badge> : null}
-        {row.delegated ? <Badge>➦ {row.delegated}</Badge> : null}
+        {row.delegated ? <Badge><Icon name="forward" /> {row.delegated}</Badge> : null}
         {row.blocked_by?.length ? (
-          <Badge tone="danger">🔒 blocked ×{row.blocked_by.length}</Badge>
+          <Badge tone="danger"><Icon name="lock" /> blocked ×{row.blocked_by.length}</Badge>
         ) : null}
-        {row.blocks?.length ? <Badge tone="warn">⛓ blocks ×{row.blocks.length}</Badge> : null}
-        {row.related?.length ? <Badge>🔗 {row.related.length}</Badge> : null}
+        {row.blocks?.length ? <Badge tone="warn"><Icon name="blocks" /> blocks ×{row.blocks.length}</Badge> : null}
+        {row.related?.length ? <Badge><Icon name="link" /> {row.related.length}</Badge> : null}
       </div>
 
       {row.waiting_on ? (
@@ -123,7 +123,7 @@ function TaskDetail({ id, onChanged, onFacetsChanged }: TaskDetailProps) {
         <div className="ml-task__actions">
           {!done ? (
             <Button size="sm" disabled={busy} onClick={() => run(() => api.complete(d.id))}>
-              ✓ Complete
+              <Icon name="check" /> Complete
             </Button>
           ) : null}
           <Select
@@ -150,7 +150,7 @@ function TaskDetail({ id, onChanged, onFacetsChanged }: TaskDetailProps) {
               void run(() => api.setAssignee(d.id, e.target.value.trim()), true);
             }}
           />
-          <Button size="sm" disabled={busy} onClick={() => setEditing(true)}>✎ Edit</Button>
+          <Button size="sm" disabled={busy} onClick={() => setEditing(true)}><Icon name="pencil" /> Edit</Button>
         </div>
       ) : null}
 

@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
 import { usePolling } from "@/hooks/usePolling";
-import { Badge, Button, EmptyState, RichText, SearchInput, Spinner, StatusMessage, TextArea } from "@/components";
+import { Badge, Button, EmptyState, RichText, SearchInput, Spinner, StatusMessage, TextArea, Icon } from "@/components";
 import { Section } from "@/features/shell/Section";
 import { formatDate, truncate } from "@/lib/format";
 import { applyMark, plainText } from "@/lib/richText";
@@ -20,7 +20,7 @@ import "./MessagesSection.css";
  * the right, the thread with the one picked, both directions, and a box to
  * write in.
  *
- * Every message says who wrote it: 🧬 a person, 🤖 a session or a script.
+ * Every message says who wrote it: a person glyph, or a bot glyph for a session or a script.
  * Only what is typed here counts as a person's; the flag is sealed with the
  * text, so the other brain shows it the same way.
  */
@@ -60,7 +60,7 @@ export function MessagesSection() {
   return (
     <Section
       title="Messages"
-      lead="Conversations with other second brains. 🧬 a person wrote it, 🤖 a session or a script did."
+      lead="Conversations with other second brains. A person glyph means a person wrote it, a bot glyph a session or a script."
       width={1120}
     >
       {convs.error ? <StatusMessage tone="error">{convs.error}</StatusMessage> : null}
@@ -163,12 +163,12 @@ function displayName(c: Pick<B2BConversation, "name" | "peer_id">): string {
   return c.name || `${c.peer_id.slice(0, 10)}…`;
 }
 
-/** 🧬 for a person, 🤖 for anything automated. */
+/** A person glyph for a person, a bot glyph for anything automated. */
 export function AuthorIcon({ human }: { human: boolean }) {
   const label = human ? "written by a person" : "automated";
   return (
     <span className="ml-msg__author" role="img" aria-label={label} title={label}>
-      {human ? "🧬" : "🤖"}
+      <Icon name={human ? "user" : "bot"} />
     </span>
   );
 }

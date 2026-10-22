@@ -1,14 +1,16 @@
-.ml-side__scrim { position: fixed; inset: 0; background: #0008; z-index: var(--z-scrim); }
+.ml-side__scrim { position: fixed; inset: 0; background: #0006; z-index: var(--z-scrim); animation: ml-fade var(--t-move) var(--ease-spring); }
 .ml-side {
   position: fixed; top: 0; left: 0; bottom: 0; width: 218px; z-index: var(--z-drawer);
   display: flex; flex-direction: column; padding: var(--space-4) 10px;
-  background: var(--panel); border-right: 1px solid var(--border);
-  backdrop-filter: blur(8px); box-shadow: var(--shadow-panel);
-  transform: translateX(-110%); transition: transform 0.16s ease;
+  background: var(--panel); border-right: 0.5px solid var(--border);
+  backdrop-filter: var(--blur-sheet); -webkit-backdrop-filter: var(--blur-sheet); box-shadow: var(--shadow-panel);
+  /* It leaves the way it came: the same curve in both directions, and it can
+     be reversed mid-flight because a transition starts from the live value. */
+  transform: translateX(-110%); transition: transform var(--t-move) var(--ease-spring);
 }
 .ml-side.is-open { transform: none; }
 .ml-side__head {
-  font-weight: 600; letter-spacing: 0.2px; padding: var(--space-2) var(--space-3) var(--space-4);
+  font-weight: 700; font-size: 15px; letter-spacing: var(--track-title); padding: var(--space-2) var(--space-3) var(--space-4);
   display: flex; align-items: center; gap: var(--space-3);
 }
 .ml-side__head b { color: var(--accent); }
@@ -19,15 +21,17 @@
 .ml-side__x:hover { color: var(--fg); }
 .ml-side__nav { display: flex; flex-direction: column; gap: var(--space-1); }
 .ml-side__foot {
-  margin-top: auto; padding-top: 9px; border-top: 1px solid var(--border);
+  margin-top: auto; padding-top: var(--space-3); border-top: 0.5px solid var(--border);
   display: flex; flex-direction: column; gap: var(--space-1);
 }
 .ml-side__link {
-  display: flex; align-items: center; gap: 9px; text-decoration: none;
-  color: var(--fg); border-radius: 8px; padding: var(--space-3) 9px; font-size: 13.5px;
+  display: flex; align-items: center; gap: 10px; text-decoration: none;
+  color: var(--fg); border-radius: var(--radius); padding: 9px 12px; font-size: 14px;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
 .ml-side__link:hover { background: var(--hover); }
-.ml-side__link.is-active { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.ml-side__link:active { background: var(--press); transition-duration: var(--t-press); }
+.ml-side__link.is-active { background: var(--accent-solid); color: var(--accent-fg); font-weight: 600; }
 
 /* API docs: an in-app page, plus an arrow that opens it in its own tab. The
    dimmer weight keeps it from competing with the sections above it. */
@@ -37,7 +41,7 @@
 .ml-side__link--docs:not(.is-active):hover { color: var(--fg); }
 .ml-side__ext {
   flex: none; display: flex; align-items: center; justify-content: center;
-  width: 28px; align-self: stretch; border-radius: 8px;
+  width: 28px; align-self: stretch; border-radius: var(--radius);
   color: var(--muted); text-decoration: none; font-size: 11px;
 }
 .ml-side__ext:hover { background: var(--hover); color: var(--fg); }

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button";
 import "./Modal.css";
+import { Icon } from "./Icon";
 
 export interface ModalProps {
   title: ReactNode;
@@ -69,7 +70,7 @@ export function Modal({ title, subtitle, onClose, children, footer, depth = 0, w
             <h2 className="ml-modal__title">{title}</h2>
             {subtitle ? <p className="ml-modal__sub">{subtitle}</p> : null}
           </div>
-          <Button variant="ghost" onClick={onClose} aria-label="close">✕</Button>
+          <Button variant="ghost" onClick={onClose} aria-label="close"><Icon name="close" /></Button>
         </header>
         <div className="ml-modal__body">{children}</div>
         {footer ? <footer className="ml-modal__foot">{footer}</footer> : null}

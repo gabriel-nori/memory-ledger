@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, Checkbox, Field, Spinner, StatusMessage, TextArea, TextInput } from "@/components";
+import { Badge, Button, Card, Checkbox, Field, Spinner, StatusMessage, TextArea, TextInput, Icon } from "@/components";
 import type { BadgeTone } from "@/components";
 import type {
   GitHubEventKind,
@@ -1254,7 +1254,7 @@ export function ChannelsCard({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span> Open channels{" "}
+        <span aria-hidden="true"><Icon name={open ? "chevron-down" : "chevron-right"} /></span> Open channels{" "}
         <Badge tone={count ? "accent" : "neutral"}>{count}</Badge>
       </button>
       <p className="ml-settings__hint">
@@ -1318,7 +1318,7 @@ export function ChannelsCard({
                 aria-expanded={showClosed}
                 onClick={() => setShowClosed((v) => !v)}
               >
-                <span aria-hidden="true">{showClosed ? "▾" : "▸"}</span> Closed{" "}
+                <span aria-hidden="true"><Icon name={showClosed ? "chevron-down" : "chevron-right"} /></span> Closed{" "}
                 <Badge>{channels.removed.length}</Badge>
               </button>
               {showClosed ? (
@@ -1411,7 +1411,7 @@ export function PeopleCard({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span> People who may tag the brain{" "}
+        <span aria-hidden="true"><Icon name={open ? "chevron-down" : "chevron-right"} /></span> People who may tag the brain{" "}
         <Badge tone={people.active.length ? "accent" : "neutral"}>{people.active.length}</Badge>
       </button>
       <p className="ml-settings__hint">

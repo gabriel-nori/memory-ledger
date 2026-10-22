@@ -1,13 +1,14 @@
 .ml-nodecard {
   position: fixed; top: 64px; right: var(--space-4); width: 320px;
-  max-height: 78vh; overflow: auto; padding: 14px; z-index: var(--z-panel);
+  max-height: 78vh; overflow: auto; padding: var(--space-4); z-index: var(--z-panel);
+  transform-origin: top right; animation: ml-materialize var(--t-move) var(--ease-spring);
 }
 .ml-nodecard__x {
   float: right; cursor: pointer; color: var(--muted); font-size: 16px;
   line-height: 1; background: none; border: 0;
 }
 .ml-nodecard__x:hover { color: var(--fg); }
-.ml-nodecard__title { margin: var(--space-2) var(--space-3) 2px 0; font-size: 15px; }
+.ml-nodecard__title { margin: var(--space-2) var(--space-3) 2px 0; font-size: 17px; font-weight: 600; letter-spacing: var(--track-title); }
 .ml-nodecard__body {
   margin: var(--space-3) 0; padding: var(--space-3); background: var(--bg-sunken);
   border-radius: var(--radius); white-space: pre-wrap; max-height: 160px;
@@ -15,7 +16,7 @@
 }
 .ml-nodecard__h {
   margin: var(--space-4) 0 4px; font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.5px; color: var(--muted); font-weight: 500;
+  letter-spacing: var(--track-caps); color: var(--muted); font-weight: 600;
 }
 .ml-nodecard__actions {
   display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;
@@ -24,7 +25,8 @@
 .ml-nodecard__note { color: var(--muted); font-size: 11.5px; }
 .ml-rel {
   display: flex; gap: var(--space-2); align-items: baseline; width: 100%;
-  padding: 4px var(--space-2); border-radius: var(--radius-sm); cursor: pointer;
+  padding: 5px var(--space-2); border-radius: var(--radius-sm); cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
   background: none; border: 0; color: var(--fg); font: inherit; text-align: left;
 }
 .ml-rel:hover { background: var(--hover); }

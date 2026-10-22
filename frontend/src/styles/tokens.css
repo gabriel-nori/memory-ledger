@@ -1,56 +1,87 @@
 /*
  * The design tokens the whole app paints with.
  *
- * Every component reads these and nothing hard-codes a hex. They are the same
- * values the single-file page used, carried over deliberately: the refactor
- * changes how the UI is built, not what it looks like.
+ * Every component reads these and nothing hard-codes a hex. The values follow
+ * Apple's interface guidance: the system font with size-specific tracking, a
+ * quiet neutral ground with one blue accent, hairline separators instead of
+ * boxes, translucent materials that carry hierarchy, and critically damped
+ * motion that starts on press and never locks the user out.
  */
 :root {
-  --bg: #0d1117;
-  --bg-sunken: #0d1117;
-  --panel: #161b22cc;
-  --panel-solid: #161b22;
-  --border: #30363d;
-  --fg: #e6edf3;
-  --fg-dim: #c9d1d9;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --accent-fg: #0d1117;
-  --danger: #f85149;
-  --success: #3fb950;
-  --warn: #d29922;
-  --edge: #3a4048;
-  --edge-hi: #58a6ff;
-  --hover: #ffffff10;
+  /* Ground and surfaces. Heavier surfaces are lighter (closer to the user). */
+  --bg: #111113;
+  --bg-sunken: #ffffff0f;
+  --panel: #2c2c2eb8;
+  --panel-solid: #1c1c1e;
+  --border: #ffffff1a;
+  --fg: #f5f5f7;
+  --fg-dim: #d1d1d6;
+  --muted: #98989f;
+  --accent: #2997ff;
+  --accent-solid: #0071e3;
+  --accent-fg: #ffffff;
+  --danger: #ff6961;
+  --success: #32d74b;
+  --warn: #ffb340;
+  --edge: #3a3a3e;
+  --edge-hi: #2997ff;
+  --hover: #ffffff14;
+  --press: #ffffff22;
+  --selected: #2997ff26;
+  --material-edge: #ffffff26;
 
   /* A trigger task's status: the card's edge, its chip, the filter swatch. */
-  --task-queued: #8b949e;
-  --task-running: #58a6ff;
-  --task-done: #3fb950;
-  --task-failed: #f85149;
-  --task-timeout: #f85149;
-  --task-interrupted: #db6d28;
-  --task-cancelled: #8b949e;
-  --task-declined: #d29922;
-  --task-refused: #a371f7;
-  --task-blocked: #8b949e;
+  --task-queued: #98989f;
+  --task-running: #2997ff;
+  --task-done: #32d74b;
+  --task-failed: #ff6961;
+  --task-timeout: #ff6961;
+  --task-interrupted: #ff9f0a;
+  --task-cancelled: #98989f;
+  --task-declined: #ffb340;
+  --task-refused: #bf5af2;
+  --task-blocked: #98989f;
 
-  --radius-sm: 6px;
-  --radius: 7px;
-  --radius-lg: 10px;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 14px;
 
-  --space-1: 3px;
-  --space-2: 6px;
-  --space-3: 8px;
-  --space-4: 12px;
-  --space-5: 16px;
-  --space-6: 24px;
+  /* Spacing stays on a 4pt rhythm. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 28px;
 
-  --font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* The platform font first: it ships optical sizing and its own tracking. */
+  --font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
-  --shadow-panel: 0 6px 24px #0008;
-  --shadow-pop: 0 8px 28px #000a;
+  /* Tracking and leading by size: tight when large, open when small. */
+  --track-large: -0.022em;
+  --track-title: -0.012em;
+  --track-body: -0.003em;
+  --track-small: 0.004em;
+  --track-caps: 0.05em;
+
+  --shadow-panel: 0 0 0 0.5px #00000066, 0 8px 32px #00000066;
+  --shadow-pop: 0 0 0 0.5px #00000080, 0 12px 40px #00000099;
+  --shadow-press: 0 1px 2px #0000004d;
+
+  /* Materials: blur and saturation grow with the size of the surface. */
+  --blur-chip: blur(16px) saturate(170%);
+  --blur-panel: blur(24px) saturate(180%);
+  --blur-sheet: blur(40px) saturate(190%);
+
+  /* Motion. Critically damped, no overshoot; response of about 0.3 to 0.4s.
+     `ease-spring` is the settle curve of a damping-1 spring. Reversible
+     surfaces use it both ways so they leave the way they came. */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --t-press: 100ms;
+  --t-fast: 160ms;
+  --t-move: 360ms;
 
   --z-canvas: 0;
   --z-panel: 15;
@@ -60,4 +91,25 @@
   --z-drawer: 50;
   --z-modal: 60;
   --z-toast: 70;
+}
+
+/* Frostier materials for people who asked for less transparency, and a
+   defined edge for people who asked for more contrast. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --panel: #2c2c2e;
+    --blur-chip: none;
+    --blur-panel: none;
+    --blur-sheet: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --panel: #1c1c1e;
+    --border: #ffffff59;
+    --muted: #b5b5ba;
+    --blur-chip: none;
+    --blur-panel: none;
+    --blur-sheet: none;
+  }
 }

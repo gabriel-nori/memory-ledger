@@ -1,12 +1,14 @@
 .ml-due {
-  display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 20px;
-  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: 999px;
+  border: 0; background: var(--hover); color: var(--muted);
   font-family: inherit; white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring);
 }
 .ml-due.is-editable { cursor: pointer; }
-.ml-due.is-editable:hover { border-color: var(--accent); color: var(--fg); }
-.ml-due.is-over { color: var(--danger); border-color: var(--danger); }
+.ml-due.is-editable:hover { background: var(--press); color: var(--fg); }
+.ml-due.is-editable:active { transform: scale(0.96); transition-duration: var(--t-press); }
+.ml-due.is-over { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, transparent); }
 .ml-due__picker {
-  background: var(--bg-sunken); border: 1px solid var(--accent); color: var(--fg);
+  background: var(--bg-sunken); border: 0; box-shadow: 0 0 0 2px var(--accent); color: var(--fg);
   border-radius: var(--radius-sm); padding: 1px 6px; font: inherit; font-size: 11px;
 }

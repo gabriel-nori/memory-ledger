@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import "./Dropdown.css";
+import { Icon } from "./Icon";
 
 export interface DropdownProps {
   /** What the closed button says on the left. */
@@ -66,7 +67,7 @@ export function Dropdown({
       >
         <span>{label}</span>
         {summary !== undefined ? <span className="ml-dd__summary">{summary}</span> : null}
-        <span className="ml-dd__caret" aria-hidden="true">▾</span>
+        <span className="ml-dd__caret" aria-hidden="true"><Icon name="chevron-down" /></span>
       </button>
       {open ? (
         <div className={`ml-dd__menu ml-dd__menu--${align}`} id={menuId} role="group">

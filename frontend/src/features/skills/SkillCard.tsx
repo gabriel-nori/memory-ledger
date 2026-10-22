@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "@/api/client";
-import { Badge, Checkbox, EmptyState } from "@/components";
+import { Badge, Checkbox, EmptyState, Icon } from "@/components";
 import { Highlight } from "./Highlight";
 import { RuleRow } from "./RuleRow";
 import type { NodeDetail } from "@/api/types";
@@ -58,7 +58,7 @@ export function SkillCard({ skill, query, selectable, selected, onSelect }: Skil
           />
         ) : null}
         <button type="button" className="ml-skill__toggle" aria-expanded={open} onClick={expand}>
-          <span className="ml-skill__tw" aria-hidden="true">{open ? "▼" : "▶"}</span>
+          <span className="ml-skill__tw" aria-hidden="true"><Icon name={open ? "chevron-down" : "chevron-right"} /></span>
           <span className="ml-skill__name">
             <Highlight text={skill.title} query={query} />
           </span>
@@ -162,7 +162,7 @@ function Relations({ detail, error }: { detail: NodeDetail | null; error: string
   const out = edges.filter((e) => e.dir === "out");
   const inn = edges.filter((e) => e.dir === "in");
 
-  const block = (label: string, list: typeof edges, arrow: string) =>
+  const block = (label: string, list: typeof edges, arrow: "arrow-right" | "arrow-left") =>
     list.length ? (
       <div key={label}>
         <div className="ml-skill__relgrp">{label}</div>
@@ -171,7 +171,7 @@ function Relations({ detail, error }: { detail: NodeDetail | null; error: string
           .sort((a, b) => a.rel.localeCompare(b.rel))
           .map((e, i) => (
             <div className="ml-skill__relln" key={`${label}-${e.id}-${i}`}>
-              <span className="ml-skill__ar">{arrow}</span>
+              <span className="ml-skill__ar"><Icon name={arrow} /></span>
               <span className="ml-skill__rl">{e.rel}</span>
               <span className="ml-skill__tt">{e.title || e.id}</span>
               <span className="ml-skill__ty">{e.type || ""}</span>
@@ -182,8 +182,8 @@ function Relations({ detail, error }: { detail: NodeDetail | null; error: string
 
   return (
     <>
-      {block("Points at", out, "──▸")}
-      {block("Pointed at by", inn, "◂──")}
+      {block("Points at", out, "arrow-right")}
+      {block("Pointed at by", inn, "arrow-left")}
     </>
   );
 }

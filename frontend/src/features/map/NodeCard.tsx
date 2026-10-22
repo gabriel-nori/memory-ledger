@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
-import { Badge, Button, KeyValue, Panel, StatusMessage } from "@/components";
+import { Badge, Button, KeyValue, Panel, StatusMessage, Icon } from "@/components";
 import { colorForType } from "@/lib/colors";
 import { isCompletable, isDone } from "@/lib/vocab";
 import { NodeEditor } from "./NodeEditor";
@@ -51,7 +51,7 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
 
   return (
     <Panel className="ml-nodecard">
-      <button type="button" className="ml-nodecard__x" onClick={onClose} aria-label="close">✕</button>
+      <button type="button" className="ml-nodecard__x" onClick={onClose} aria-label="close"><Icon name="close" /></button>
       <Badge tone="type" color={colorForType(node.type)}>{node.type}</Badge>
       <h3 className="ml-nodecard__title">{node.title || node.id}</h3>
 
@@ -89,14 +89,14 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
               <>
                 {isCompletable(node.type) ? (
                   isDone(node.status) ? (
-                    <span className="ml-nodecard__note">✓ archived</span>
+                    <span className="ml-nodecard__note"><Icon name="check" /> archived</span>
                   ) : (
                     <Button size="sm" onClick={complete} disabled={busy}>
-                      {busy ? "saving…" : "✓ Complete"}
+                      {busy ? "saving…" : <><Icon name="check" /> Complete</>}
                     </Button>
                   )
                 ) : null}
-                <Button size="sm" onClick={() => setEditing(true)}>✎ Edit</Button>
+                <Button size="sm" onClick={() => setEditing(true)}><Icon name="pencil" /> Edit</Button>
               </>
             )}
           </div>
@@ -107,7 +107,7 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
 
       {incoming.length ? (
         <>
-          <h4 className="ml-nodecard__h">← incoming ({incoming.length})</h4>
+          <h4 className="ml-nodecard__h"><Icon name="arrow-left" /> incoming ({incoming.length})</h4>
           {incoming.map((e, i) => (
             <button
               type="button"
@@ -115,7 +115,7 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
               className="ml-rel"
               onClick={() => onFocus(e.src)}
             >
-              <span className="ml-rel__arrow">◂──</span>
+              <span className="ml-rel__arrow"><Icon name="arrow-left" /></span>
               <span>
                 {byId.get(e.src)?.title || e.src} <em className="ml-rel__r">{e.rel}</em>
               </span>
@@ -126,7 +126,7 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
 
       {outgoing.length ? (
         <>
-          <h4 className="ml-nodecard__h">outgoing → ({outgoing.length})</h4>
+          <h4 className="ml-nodecard__h">outgoing <Icon name="arrow-right" /> ({outgoing.length})</h4>
           {outgoing.map((e, i) => (
             <button
               type="button"
@@ -134,7 +134,7 @@ export function NodeCard({ node, edges, byId, onClose, onFocus, onChanged }: Nod
               className="ml-rel"
               onClick={() => onFocus(e.dst)}
             >
-              <span className="ml-rel__arrow">──▸</span>
+              <span className="ml-rel__arrow"><Icon name="arrow-right" /></span>
               <span>
                 <em className="ml-rel__r">{e.rel}</em> {byId.get(e.dst)?.title || e.dst}
               </span>

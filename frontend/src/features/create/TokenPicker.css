@@ -1,15 +1,15 @@
 .ml-tokens__chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--space-2); }
 .ml-tokens__chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
-  border: 1px solid var(--accent); color: var(--accent);
-  border-radius: 20px; padding: 1px 4px 1px 9px;
+  border: 0; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 999px; padding: 2px 5px 2px 10px;
 }
 .ml-tokens__chip button {
   background: none; border: 0; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px;
 }
 .ml-tokens__bar { display: flex; gap: var(--space-2); }
 .ml-tokens__panel {
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--hover); border-radius: var(--radius);
   padding: var(--space-2); margin-top: var(--space-2);
 }
 .ml-tokens__list { max-height: 220px; overflow: auto; margin-top: var(--space-2); }

@@ -1,6 +1,6 @@
-.ml-settings__h { margin: 0 0 var(--space-2); font-size: 14px; }
+.ml-settings__h { margin: 0 0 var(--space-2); font-size: 17px; letter-spacing: var(--track-title); }
 .ml-settings__h3 {
-  margin: var(--space-6) 0 var(--space-2); font-size: 12.5px;
+  margin: var(--space-6) 0 var(--space-2); font-size: 13px;
   display: flex; align-items: center; gap: var(--space-2);
 }
 .ml-settings__hint { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 var(--space-4); }
@@ -33,14 +33,14 @@
    a year of captures does not turn the card into the page. */
 .ml-settings__scroll { max-height: 320px; overflow: auto; margin-bottom: var(--space-4); }
 .ml-settings__preview {
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--hover); border-radius: var(--radius);
   padding: var(--space-4); margin: var(--space-4) 0;
 }
 .ml-settings__preview .ml-settings__h3 { margin-top: 0; }
 .ml-settings__table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .ml-settings__table th, .ml-settings__table td {
   text-align: left; padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .ml-settings__table th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel-solid); }
 .ml-settings__doctor { margin-bottom: var(--space-5); }
@@ -56,7 +56,7 @@
 .ml-trigger__rows { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
 .ml-trigger__row {
   display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-3); align-items: center;
-  padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: 11.5px;
+  padding: var(--space-2) 0; border-bottom: 0.5px solid var(--border); font-size: 11.5px;
 }
 .ml-trigger__row code { color: var(--muted); }
 .ml-trigger__closed { margin-top: var(--space-4); font-size: 11.5px; }
@@ -68,7 +68,7 @@
   display: flex; align-items: center; gap: var(--space-2);
   margin: var(--space-2) 0; font-size: 12.5px; font-weight: 600;
 }
-.ml-trigger__event { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.ml-trigger__event { padding: var(--space-2) 0; border-bottom: 0.5px solid var(--border); }
 .ml-trigger__event .ml-settings__hint--switch { margin-bottom: var(--space-2); }
 
 /* Run commands: the variables reference, and a command with example values */
@@ -78,7 +78,7 @@
 .ml-trigger__vars-table table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
 .ml-trigger__vars-table th, .ml-trigger__vars-table td {
   text-align: left; vertical-align: top; padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .ml-trigger__vars-table th { color: var(--muted); font-weight: 600; }
 .ml-trigger__preview { color: var(--muted); font-size: 11.5px; margin: var(--space-1) 0 0; white-space: pre-wrap; }
@@ -98,7 +98,7 @@
 .ml-trigger__http { grid-template-columns: minmax(90px, 120px) 1fr; }
 .ml-trigger__http > :nth-child(n + 3) { grid-column: 1 / -1; }
 .ml-trigger__new-script {
-  border-left: 2px solid var(--border); padding-left: var(--space-3); margin-top: var(--space-2);
+  border-left: 2px solid var(--press); padding-left: var(--space-3); margin-top: var(--space-2);
   display: grid; gap: var(--space-2);
 }
 .ml-trigger__code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; }
@@ -107,14 +107,14 @@
 .ml-b2b__id { color: var(--muted); overflow-wrap: anywhere; font-size: 11.5px; }
 .ml-b2b__row {
   display: grid; gap: var(--space-2); padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border); font-size: 11.5px;
+  border-bottom: 0.5px solid var(--border); font-size: 11.5px;
 }
 .ml-trigger__scan { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-1); font-size: 12.5px; }
 .ml-trigger__scan li { overflow-wrap: anywhere; }
 
 /* Agents: one block per connector. */
 .ml-agents-card__list { list-style: none; margin: var(--space-3) 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.ml-agents-card__row { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
+.ml-agents-card__row { border: 0.5px solid var(--border); border-radius: var(--radius); padding: var(--space-3); }
 .ml-agents-card__top { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2); }
 .ml-agents-card__top > :last-child { margin-left: auto; }
 .ml-agents-card__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-3); }

@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
 import "./SearchInput.css";
+import { Icon } from "./Icon";
 
 export interface SearchInputProps {
   value: string;
@@ -36,7 +37,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
       />
       {value ? (
         <button type="button" className="ml-search__clear" title={clearLabel} aria-label={clearLabel} onClick={() => onChange("")}>
-          ✕
+          <Icon name="close" />
         </button>
       ) : null}
     </div>

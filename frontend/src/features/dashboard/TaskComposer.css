@@ -1,17 +1,17 @@
 .ml-composer {
-  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  border: 0.5px solid var(--border); border-radius: var(--radius-lg);
   padding: var(--space-4); margin-bottom: var(--space-4); background: var(--panel-solid);
 }
 .ml-composer__grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3);
 }
 .ml-composer__sug {
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--hover); border-radius: var(--radius);
   padding: var(--space-3); margin-bottom: var(--space-4);
 }
 .ml-composer__sugh {
   margin: 0 0 var(--space-2); color: var(--muted); font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.5px;
+  text-transform: uppercase; letter-spacing: var(--track-caps); font-weight: 600;
 }
 .ml-composer__sugrow { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .ml-composer__sugrow .ml-check { flex: 1; min-width: 180px; }

@@ -8,7 +8,22 @@ html, body, #root {
   background: var(--bg);
   color: var(--fg);
   font: var(--font);
+  letter-spacing: var(--track-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+/* Headings change shape with size: the larger, the tighter. */
+h1, h2, h3, h4, h5, h6 { font-weight: 600; letter-spacing: var(--track-title); }
+small { letter-spacing: var(--track-small); }
+
+/* Tapping must feel instant: no 300ms wait, no grey flash. */
+a, button, input, select, textarea, summary, [role="button"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+/* Feedback lives on the press and arrives on pointer-down. Controls with their
+   own press style (nav rows, rows that fill the width) opt out by being
+   full-width and shifting colour only. */
+button:not(:disabled):active, summary:active { transition-duration: var(--t-press); }
 
 /* The map owns the viewport and must not scroll; every other section is a
    normal scrolling document. `data-section` on <body> is the single switch, so
@@ -19,23 +34,29 @@ body:not([data-section="map"]):not([data-section="api-docs"]):not([data-section=
 a { color: var(--accent); }
 code { font-family: var(--font-mono); font-size: 0.92em; }
 
-::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #ffffff33; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #ffffff55; background-clip: content-box; border: 3px solid transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* Keyboard users get a visible focus ring; pointer users do not get a box
    around everything they click. */
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; border-radius: inherit; }
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
+/* Reduced motion keeps the feedback and drops the travel: surfaces cross-fade
+   in place instead of sliding or scaling, and nothing loops. Colour and
+   opacity changes stay, because they carry meaning. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  button:active { transform: none !important; }
 }

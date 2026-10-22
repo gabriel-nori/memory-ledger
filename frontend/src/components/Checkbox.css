@@ -1,10 +1,11 @@
 .ml-check {
-  display: flex; align-items: center; gap: 7px; padding: var(--space-1) 5px;
+  display: flex; align-items: center; gap: 8px; padding: var(--space-1) 6px;
   border-radius: var(--radius-sm); cursor: pointer; user-select: none;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
 .ml-check:hover { background: var(--hover); }
-.ml-check input { margin: 0; accent-color: var(--accent); }
-.ml-check__swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.ml-check input { margin: 0; accent-color: var(--accent-solid); }
+.ml-check__swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .ml-check__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-check__count {
   margin-left: auto; color: var(--muted);

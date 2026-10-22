@@ -1,14 +1,14 @@
 .ml-status {
-  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--hover); border-radius: var(--radius);
   padding: var(--space-2) var(--space-3); margin: var(--space-3) 0;
-  font-size: 12px; white-space: pre-wrap; color: var(--fg-dim);
+  font-size: 12.5px; white-space: pre-wrap; color: var(--fg-dim);
 }
-.ml-status--error { border-color: var(--danger); color: var(--danger); }
-.ml-status--success { border-color: var(--success); color: var(--success); }
+.ml-status--error { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ml-status--success { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
 
 .ml-empty { padding: var(--space-6) var(--space-4); text-align: center; }
-.ml-empty__title { margin: 0 0 4px; color: var(--fg); font-size: 13px; }
-.ml-empty__hint { margin: 0 0 var(--space-3); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ml-empty__title { margin: 0 0 4px; color: var(--fg); font-size: 15px; font-weight: 600; letter-spacing: var(--track-title); }
+.ml-empty__hint { margin: 0 0 var(--space-3); color: var(--muted); font-size: 13px; line-height: 1.5; }
 
 .ml-spinner { display: inline-flex; align-items: center; }
 .ml-spinner__dot {
@@ -21,7 +21,7 @@
 .ml-live { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .ml-live__dot {
   width: 8px; height: 8px; border-radius: 50%; background: var(--success);
-  box-shadow: 0 0 6px var(--success); animation: ml-pulse 2s infinite;
+  animation: ml-pulse 2s infinite;
 }
-.ml-live__dot.is-down { background: var(--danger); box-shadow: 0 0 6px var(--danger); animation: none; }
+.ml-live__dot.is-down { background: var(--danger); animation: none; }
 @keyframes ml-pulse { 50% { opacity: 0.35; } }

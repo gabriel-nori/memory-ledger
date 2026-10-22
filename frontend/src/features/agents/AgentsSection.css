@@ -8,8 +8,8 @@
   .ml-agents__side { max-height: 30vh; }
 }
 .ml-agents__side, .ml-agents__main {
-  border: 1px solid var(--border); border-radius: var(--radius-lg);
-  background: var(--panel); display: flex; flex-direction: column; min-height: 0;
+  border: 0.5px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--panel-solid); display: flex; flex-direction: column; min-height: 0;
 }
 /* The burger floats over the top-left corner; the search starts below it. */
 .ml-agents__side { padding: 44px var(--space-3) var(--space-3); gap: var(--space-2); }
@@ -21,14 +21,16 @@
   display: flex; flex-direction: column; gap: 2px; width: 100%;
   padding: var(--space-3); border: 0; border-radius: var(--radius);
   background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
 .ml-agents__conv:hover { background: var(--hover); }
-.ml-agents__conv.is-active { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
+.ml-agents__conv:active { background: var(--press); transition-duration: var(--t-press); }
+.ml-agents__conv.is-active { background: var(--selected); }
 .ml-agents__conv-top { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .ml-agents__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-agents__when { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .ml-agents__preview { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 24px; }
-.ml-agents__hidden { border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.ml-agents__hidden { border-top: 0.5px solid var(--border); padding-top: var(--space-2); }
 .ml-agents__fold {
   border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px;
   cursor: pointer; padding: var(--space-1) var(--space-2);
@@ -49,14 +51,14 @@
 .ml-agents__main > .ml-empty { margin: auto; }
 .ml-agents__head {
   display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4); border-bottom: 0.5px solid var(--border);
 }
 .ml-agents__title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .ml-agents__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex-wrap: wrap; }
 .ml-agents__actions .ml-search { width: 200px; }
 .ml-agents__cost {
   font-family: var(--font-mono); font-size: 12px; color: var(--muted);
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; white-space: nowrap;
+  padding: 2px 9px; background: var(--hover); border-radius: 999px; white-space: nowrap;
 }
 
 .ml-agents__thread {
@@ -69,11 +71,12 @@
 .ml-agents__item--in { align-self: flex-start; }
 .ml-agents__item--out { align-self: flex-end; align-items: flex-end; }
 .ml-agents__bubble {
-  padding: var(--space-2) var(--space-4); border-radius: var(--radius-lg);
-  background: var(--panel-solid); border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4); border-radius: 18px;
+  background: var(--press); border: 0;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.ml-agents__item--out .ml-agents__bubble { background: #1f6feb33; border-color: #1f6feb66; }
+.ml-agents__item--in .ml-agents__bubble { border-bottom-left-radius: 6px; }
+.ml-agents__item--out .ml-agents__bubble { background: var(--accent-solid); color: var(--accent-fg); border-bottom-right-radius: 6px; }
 .ml-agents__bubble--wait { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); }
 .ml-agents__bubble--error { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
 .ml-agents__bubble .ml-rich__pre { max-width: 100%; }
@@ -88,12 +91,12 @@
 .ml-agents__muted { color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
 .ml-agents__pre {
   margin: 4px 0; padding: var(--space-2); max-height: 220px; overflow: auto;
-  background: var(--panel-solid); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel-solid); border: 0.5px solid var(--border); border-radius: var(--radius);
   font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg);
 }
 
 .ml-agents__compose {
-  border-top: 1px solid var(--border); padding: var(--space-3) var(--space-4);
+  border-top: 0.5px solid var(--border); padding: var(--space-3) var(--space-4);
   display: flex; flex-direction: column; gap: var(--space-2);
 }
 .ml-agents__pickers { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
@@ -104,20 +107,24 @@
 .ml-pick { position: relative; }
 .ml-pick__btn {
   display: flex; align-items: center; gap: var(--space-2); max-width: 320px;
-  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--fg);
-  border-radius: var(--radius); padding: 6px 9px; font: inherit; font-size: 12.5px;
+  background: var(--hover); border: 0; color: var(--fg);
+  border-radius: var(--radius); padding: 7px 12px; font: inherit; font-size: 13px;
   cursor: pointer; white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring);
 }
-.ml-pick__btn:hover:not(:disabled), .ml-pick__btn[aria-expanded="true"] { border-color: var(--accent); }
+.ml-pick__btn:hover:not(:disabled), .ml-pick__btn[aria-expanded="true"] { background: var(--press); }
+.ml-pick__btn:active:not(:disabled) { transform: scale(0.97); transition-duration: var(--t-press); }
 .ml-pick__btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .ml-pick__model { color: var(--muted); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ml-pick__caret { font-size: 9px; color: var(--muted); }
+.ml-pick__caret { font-size: 10px; color: var(--muted); }
 .ml-pick__menu, .ml-pick__sub {
   list-style: none; margin: 0; padding: 5px; min-width: 170px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
-  backdrop-filter: blur(8px); box-shadow: var(--shadow-pop); z-index: var(--z-dropdown);
+  background: var(--panel); border: 0.5px solid var(--border); border-top-color: var(--material-edge); border-radius: 12px;
+  backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);
+  box-shadow: var(--shadow-pop); z-index: var(--z-dropdown);
+  animation: ml-materialize var(--t-move) var(--ease-spring);
 }
-.ml-pick__menu { position: absolute; left: 0; bottom: calc(100% + 5px); }
+.ml-pick__menu { position: absolute; left: 0; bottom: calc(100% + 6px); transform-origin: bottom left; }
 .ml-pick__row { position: relative; }
 .ml-pick__sub {
   position: absolute; left: calc(100% + 4px); bottom: -5px; min-width: 210px;
@@ -128,7 +135,9 @@
   width: 100%; text-align: left; white-space: nowrap;
   background: transparent; border: 0; color: var(--fg); font: inherit; font-size: 12.5px;
   padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
+.ml-pick__item:active { background: var(--press); transition-duration: var(--t-press); }
 .ml-pick__item:hover, .ml-pick__item.is-shown { background: var(--hover); }
 .ml-pick__item.is-current { font-weight: 600; }
 .ml-pick__item.is-current [aria-hidden] { color: var(--accent); }
@@ -146,7 +155,7 @@
 .ml-slash {
   position: absolute; left: 0; right: 0; bottom: calc(100% + 5px); list-style: none; margin: 0;
   padding: 5px; max-height: 40vh; overflow-y: auto;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  background: var(--panel); border: 0.5px solid var(--border); border-radius: 9px;
   backdrop-filter: blur(8px); box-shadow: var(--shadow-pop); z-index: var(--z-dropdown);
 }
 .ml-slash__item {
@@ -172,7 +181,7 @@
 .ml-agents__files { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ml-agents__file {
   display: flex; align-items: center; gap: var(--space-2); max-width: 240px; padding: 3px 4px 3px 6px;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-sunken); font-size: 12px;
+  border: 0.5px solid var(--border); border-radius: var(--radius); background: var(--bg-sunken); font-size: 12px;
 }
 .ml-agents__file img { width: 28px; height: 28px; object-fit: cover; border-radius: var(--radius-sm); }
 .ml-agents__file.is-failed { border-color: var(--danger, #d33); }

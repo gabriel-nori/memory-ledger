@@ -1,17 +1,19 @@
 .ml-fab {
   position: fixed; right: var(--space-6); bottom: var(--space-6);
   width: 46px; height: 46px; border-radius: 50%;
-  background: var(--accent); color: var(--accent-fg); border: 0;
+  background: var(--accent-solid); color: var(--accent-fg); border: 0;
   font-size: 24px; line-height: 1; cursor: pointer; z-index: var(--z-burger);
   box-shadow: var(--shadow-pop);
+  transition: transform var(--t-move) var(--ease-spring), filter var(--t-fast) var(--ease-out);
 }
-.ml-fab:hover { filter: brightness(1.1); }
+.ml-fab:hover { filter: brightness(1.12); }
+.ml-fab:active { transform: scale(0.92); transition-duration: var(--t-press); }
 .ml-create__grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3);
 }
 .ml-create__head {
-  margin: var(--space-6) 0 var(--space-3); font-size: 12px; text-transform: uppercase;
-  letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--border);
+  margin: var(--space-6) 0 var(--space-3); font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: var(--track-caps); color: var(--muted); border-bottom: 0.5px solid var(--border);
   padding-bottom: var(--space-2);
 }
 .ml-create__hint { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 var(--space-3); }
@@ -20,8 +22,10 @@
 .ml-create__choices { display: flex; flex-direction: column; gap: var(--space-3); }
 .ml-create__choice {
   display: flex; flex-direction: column; gap: 4px; text-align: left;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--hover); border: 0; border-radius: var(--radius-lg);
   color: var(--fg); font: inherit; padding: var(--space-4); cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring);
 }
-.ml-create__choice:hover { border-color: var(--accent); }
+.ml-create__choice:hover { background: var(--press); }
+.ml-create__choice:active { transform: scale(0.98); transition-duration: var(--t-press); }
 .ml-create__choice span { color: var(--muted); font-size: 12px; line-height: 1.5; }

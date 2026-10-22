@@ -1,25 +1,28 @@
 .ml-skills__filter {
   display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
   margin: var(--space-4) 0; position: sticky; top: 0; z-index: 2;
-  background: var(--bg); padding: var(--space-2) 0;
+  padding: var(--space-3) 0;
+  /* A scroll edge, not a divider: the bar is a thin material, and the content
+     fades into it as it slides underneath. */
+  background: linear-gradient(var(--bg) 70%, transparent);
 }
 .ml-skills__filter .ml-input--select { width: auto; }
 .ml-skills__count { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .ml-skills__selbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
-  border: 1px solid var(--accent); border-radius: var(--radius);
+  border: 0; box-shadow: 0 0 0 1.5px var(--accent); border-radius: var(--radius);
   padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3);
   position: sticky; top: 0; z-index: 3; background: var(--panel-solid);
 }
 .ml-skills__seln { color: var(--muted); font-size: 12px; }
 .ml-skills__tree { margin-bottom: var(--space-6); }
 .ml-skills__treeh {
-  font-size: 14px; margin: 0 0 4px; display: flex; align-items: baseline; gap: var(--space-2);
+  font-size: 17px; letter-spacing: var(--track-title); margin: 0 0 4px; display: flex; align-items: baseline; gap: var(--space-2);
 }
 .ml-skills__ct { color: var(--muted); font-size: 11.5px; font-weight: 400; }
 .ml-skills__sub { color: var(--muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 var(--space-3); }
 .ml-skills__sub code { color: var(--fg); }
-.ml-skills__kid { margin-left: var(--space-5); padding-left: var(--space-4); border-left: 1px solid var(--border); }
+.ml-skills__kid { margin-left: var(--space-5); padding-left: var(--space-4); border-left: 0.5px solid var(--border); }
 .ml-skills__warn { color: var(--warn); font-size: 12px; line-height: 1.5; }
 .ml-skills__dellist {
   max-height: 260px; overflow: auto; font-size: 12px; line-height: 1.7;

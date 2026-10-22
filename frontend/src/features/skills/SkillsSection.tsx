@@ -11,8 +11,7 @@ import {
   SearchInput,
   Select,
   Spinner,
-  StatusMessage,
-} from "@/components";
+  StatusMessage, Icon } from "@/components";
 import type { MenuGroup } from "@/components";
 import { Section } from "@/features/shell/Section";
 import { SkillCard, NoSkills } from "./SkillCard";
@@ -853,7 +852,7 @@ export function SkillsSection() {
                 active={forceBuiltins}
                 onClick={() => setForceBuiltins((v) => !v)}
               >
-                {forceBuiltins ? "✓ built-ins included" : "Delete built-ins too"}
+                {forceBuiltins ? <><Icon name="check" /> built-ins included</> : "Delete built-ins too"}
               </Button>
               <p className="ml-skills__warn">
                 A built-in ships as a file: deleting one empties its row and the next ingest brings it

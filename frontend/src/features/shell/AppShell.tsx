@@ -3,7 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useMeta } from "@/api/MetaContext";
-import { StatusMessage } from "@/components";
+import { StatusMessage, Icon } from "@/components";
 import "./AppShell.css";
 
 /**
@@ -45,7 +45,7 @@ export function AppShell() {
         aria-expanded={navOpen}
         onClick={() => setNavOpen((v) => !v)}
       >
-        ☰
+        <Icon name="menu" />
       </button>
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       {error ? (

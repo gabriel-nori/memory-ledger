@@ -1,6 +1,6 @@
 .ml-doc {
   display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-3); border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3); border: 0.5px solid var(--border);
   border-radius: var(--radius); background: var(--hover); max-width: 100%;
 }
 .ml-doc__icon { color: var(--muted); }
@@ -12,5 +12,5 @@
   background: var(--hover); cursor: zoom-in; overflow: hidden; max-width: 100%; width: fit-content; align-self: flex-start; justify-self: start;
 }
 .ml-doc__thumb img { display: block; max-width: 320px; max-height: 240px; width: auto; height: auto; object-fit: contain; }
-.ml-doc__thumb:hover, .ml-doc__thumb:focus-visible { border-color: var(--accent); }
+.ml-doc__thumb:hover, .ml-doc__thumb:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 .ml-doc__image { display: block; max-width: 100%; max-height: 78vh; margin: 0 auto; object-fit: contain; }

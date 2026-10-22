@@ -1,4 +1,4 @@
-import { Button, Pills, Select, TextInput } from "@/components";
+import { Button, Pills, Select, TextInput, Icon } from "@/components";
 import { pluralize } from "@/lib/format";
 import type { Facets } from "./useFacets";
 import type { DashboardState } from "./state";
@@ -39,7 +39,7 @@ export function DashboardFilters({ state, onChange, facets }: DashboardFiltersPr
         active={state.mine}
         onClick={() => onChange({ ...state, mine: !state.mine })}
       >
-        🙋 Mine · needs action
+        <Icon name="flag" /> Mine · needs action
       </Button>
 
       {Object.keys(facets.assignees)

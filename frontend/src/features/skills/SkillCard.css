@@ -1,9 +1,10 @@
 .ml-skill {
-  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  border: 0.5px solid var(--border); border-radius: var(--radius-lg);
   margin-bottom: var(--space-2); background: var(--panel-solid);
+  transition: box-shadow var(--t-move) var(--ease-spring), opacity var(--t-fast) var(--ease-out);
 }
 .ml-skill.is-dim { opacity: 0.5; }
-.ml-skill.is-open { border-color: var(--accent); }
+.ml-skill.is-open { box-shadow: 0 0 0 1.5px var(--accent); }
 .ml-skill__head { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); }
 .ml-skill__toggle {
   display: flex; align-items: center; gap: var(--space-2); flex: 1;
@@ -16,7 +17,7 @@
 .ml-skill__desc { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 var(--space-3); }
 .ml-skill__h {
   margin: var(--space-4) 0 var(--space-2); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.5px; color: var(--muted); font-weight: 500;
+  letter-spacing: var(--track-caps); color: var(--muted); font-weight: 600;
 }
 .ml-skill__chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ml-skill__empty { color: var(--muted); font-size: 12px; margin: 0; }
@@ -26,7 +27,7 @@
 }
 .ml-skill__relgrp {
   color: var(--muted); font-size: 10.5px; text-transform: uppercase;
-  letter-spacing: 0.5px; margin-top: var(--space-2);
+  letter-spacing: var(--track-caps); margin-top: var(--space-2);
 }
 .ml-skill__relln { display: flex; gap: var(--space-2); align-items: baseline; font-size: 12px; padding: 2px 0; }
 .ml-skill__ar { color: var(--accent); font-family: var(--font-mono); }

@@ -1,21 +1,38 @@
 .ml-dd { position: relative; }
 .ml-dd__btn {
   display: flex; align-items: center; gap: var(--space-2);
-  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--fg);
-  border-radius: var(--radius); padding: 6px 9px; font: inherit; font-size: 12.5px;
-  cursor: pointer; white-space: nowrap;
+  background: var(--hover); border: 0; color: var(--fg);
+  border-radius: var(--radius); padding: 7px 12px; font: inherit; font-size: 13px;
+  letter-spacing: var(--track-body); cursor: pointer; white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring);
 }
-.ml-dd__btn:hover { border-color: var(--accent); }
-.ml-dd.is-open .ml-dd__btn, .ml-dd.is-active .ml-dd__btn { border-color: var(--accent); }
+.ml-dd__btn:hover { background: var(--press); }
+.ml-dd__btn:active { transform: scale(0.97); transition-duration: var(--t-press); }
+.ml-dd.is-open .ml-dd__btn { background: var(--press); }
+.ml-dd.is-active .ml-dd__btn { background: var(--selected); }
 .ml-dd__summary { color: var(--muted); font-variant-numeric: tabular-nums; }
 .ml-dd.is-active .ml-dd__summary { color: var(--accent); }
-.ml-dd__caret { font-size: 9px; color: var(--muted); }
+.ml-dd__caret { font-size: 10px; color: var(--muted); }
 
+/* The menu grows out of its button, not out of its own centre. */
 .ml-dd__menu {
-  position: absolute; top: calc(100% + 5px); min-width: 216px; max-width: 290px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
-  backdrop-filter: blur(8px); box-shadow: var(--shadow-pop);
-  padding: 7px; z-index: var(--z-dropdown);
+  position: absolute; top: calc(100% + 6px); min-width: 216px; max-width: 290px;
+  background: var(--panel); border: 0.5px solid var(--border); border-top-color: var(--material-edge);
+  border-radius: 12px;
+  backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);
+  box-shadow: var(--shadow-pop);
+  padding: 6px; z-index: var(--z-dropdown);
+  animation: ml-materialize var(--t-move) var(--ease-spring);
 }
-.ml-dd__menu--left { left: 0; }
-.ml-dd__menu--right { right: 0; }
+.ml-dd__menu--left { left: 0; transform-origin: top left; }
+.ml-dd__menu--right { right: 0; transform-origin: top right; }
+
+/* A surface arrives as material: blur and scale settle together. */
+@keyframes ml-materialize {
+  from { opacity: 0; transform: scale(0.96); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-dd__menu { animation-name: ml-fade; }
+}
+@keyframes ml-fade { from { opacity: 0; } to { opacity: 1; } }

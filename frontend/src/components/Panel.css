@@ -1,8 +1,12 @@
+/* A floating material: translucent, blurred, with a bright top edge where the
+   light catches it. Content scrolls underneath. Never nest one in another. */
 .ml-panel {
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
+  border-top-color: var(--material-edge);
   border-radius: var(--radius-lg);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--blur-panel);
+  -webkit-backdrop-filter: var(--blur-panel);
   box-shadow: var(--shadow-panel);
 }
-.ml-panel--flat { backdrop-filter: none; box-shadow: none; background: var(--panel-solid); }
+.ml-panel--flat { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; background: var(--panel-solid); }

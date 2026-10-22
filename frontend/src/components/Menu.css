@@ -1,14 +1,16 @@
 .ml-menu .ml-dd__menu { min-width: 300px; max-width: 360px; }
 .ml-menu__heading {
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: var(--track-caps);
   color: var(--muted); padding: var(--space-2) 5px var(--space-1);
 }
-.ml-menu__sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-2) 0; }
+.ml-menu__sep { border: 0; border-top: 0.5px solid var(--border); margin: var(--space-2) 0; }
 .ml-menu__item {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   background: transparent; border: 0; color: var(--fg); font: inherit;
-  padding: var(--space-2) 5px; border-radius: var(--radius-sm); cursor: pointer;
+  padding: var(--space-2) 8px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease-out);
 }
+.ml-menu__item:active:not(:disabled) { background: var(--press); transition-duration: var(--t-press); }
 .ml-menu__item:hover:not(:disabled) { background: var(--hover); }
 .ml-menu__item:disabled { opacity: 0.45; cursor: not-allowed; }
 .ml-menu__item.is-danger b { color: var(--danger); }

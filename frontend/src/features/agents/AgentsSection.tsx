@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { IconName } from "@/components";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
@@ -16,8 +17,7 @@ import {
   Select,
   Spinner,
   StatusMessage,
-  TextArea,
-} from "@/components";
+  TextArea, Icon } from "@/components";
 import { Section } from "@/features/shell/Section";
 import { UsageMeter } from "@/features/shell/UsageMeter";
 import { formatDate, truncate } from "@/lib/format";
@@ -122,7 +122,7 @@ export function AgentsSection() {
                   aria-expanded={showHidden}
                   onClick={() => setShowHidden((v) => !v)}
                 >
-                  <span aria-hidden="true">{showHidden ? "▾" : "▸"}</span> Hidden ({hidden.length})
+                  <span aria-hidden="true"><Icon name={showHidden ? "chevron-down" : "chevron-right"} /></span> Hidden ({hidden.length})
                 </button>
                 {showHidden ? <ConvList label="hidden conversations" items={hidden} selected={selected} onOpen={open} /> : null}
               </div>
@@ -236,7 +236,7 @@ const STATE_LABEL: Record<AgentConvState, string> = {
   empty: "no messages yet",
 };
 
-/** ◌ spinning, ? waiting on you, ✓ answered, ✕ failed. */
+/** Spinner while running, help mark when it waits on you, check when answered, close when failed. */
 export function StateIcon({ state }: { state: AgentConvState }) {
   const label = STATE_LABEL[state];
   if (state === "pending")
@@ -245,7 +245,7 @@ export function StateIcon({ state }: { state: AgentConvState }) {
         <span className="ml-spinner__dot" aria-hidden="true" />
       </span>
     );
-  const glyph = state === "question" ? "?" : state === "done" ? "✓" : state === "error" ? "✕" : "·";
+  const glyph = <Icon name={state === "question" ? "help" : state === "done" ? "check" : state === "error" ? "close" : "dot"} />;
   return (
     <span className={`ml-agents__state ml-agents__state--${state}`} role="img" aria-label={label} title={label}>
       {glyph}
@@ -404,7 +404,7 @@ function Thread({ id, voice, summary, connectors, defaults, writable, onCreated,
               title="Search in this chat"
               aria-label="search in chat"
             >
-              🔍
+              <Icon name="search" />
             </Button>
             <span
               className="ml-agents__cost"
@@ -524,7 +524,7 @@ function MessageItem({ m, writable, translateTo, onRetry, onCancel }: {
         ? segs.map((seg, i) =>
             seg.said ? (
               <div key={i} className={`ml-agents__bubble ml-agents__bubble--said${seg.thought ? " ml-agents__bubble--thinking" : ""}`}>
-                {seg.thought ? <div className="ml-agents__muted">💭 thinking</div> : null}
+                {seg.thought ? <div className="ml-agents__muted"><Icon name="thinking" /> thinking</div> : null}
                 <Said text={seg.said} target={translateTo} />
               </div>
             ) : (
@@ -571,13 +571,18 @@ function MessageItem({ m, writable, translateTo, onRetry, onCancel }: {
   );
 }
 
-const KIND_ICON: Record<string, string> = { tool: "🔧", skill: "🧩", agent: "🤖", mcp: "🔌", thinking: "💭", text: "💬", note: "ℹ" };
+const KIND_ICON: Record<string, IconName> = { tool: "tool", skill: "cube", agent: "sparkle", mcp: "plug", thinking: "thinking", text: "message", note: "info" };
 
 /** Every tool, skill and subagent the reply used, folded shut by default. */
 function EventLog({ events, running }: { events: AgentEvent[]; running: boolean }) {
   const counts = new Map<string, number>();
   for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
-  const summary = [...counts.entries()].map(([k, n]) => `${KIND_ICON[k] ?? "·"} ${n} ${k}${n > 1 ? "s" : ""}`).join(" · ");
+  const summary = [...counts.entries()].map(([k, n], i) => (
+    <span key={k}>
+      {i ? " · " : ""}
+      <Icon name={KIND_ICON[k] ?? "dot"} /> {n} {k}{n > 1 ? "s" : ""}
+    </span>
+  ));
   return (
     <details className="ml-agents__log">
       <summary>
@@ -589,7 +594,7 @@ function EventLog({ events, running }: { events: AgentEvent[]; running: boolean 
           <li key={e.id || i} className={e.parent ? "is-nested" : ""}>
             <details>
               <summary>
-                <span aria-hidden="true">{KIND_ICON[e.kind] ?? "·"}</span> <b>{e.name}</b>
+                <span aria-hidden="true"><Icon name={KIND_ICON[e.kind] ?? "dot"} /></span> <b>{e.name}</b>
                 {e.tool && e.tool !== e.name ? <span className="ml-agents__muted"> {e.tool}</span> : null}
                 {e.error ? <Badge tone="danger">failed</Badge> : null}
               </summary>
@@ -912,7 +917,7 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         <ul className="ml-agents__files" aria-label="attached files">
           {files.map((f) => (
             <li key={f.key} className={`ml-agents__file is-${f.state}`}>
-              {f.preview ? <img src={f.preview} alt="" /> : <span aria-hidden="true">▤</span>}
+              {f.preview ? <img src={f.preview} alt="" /> : <span aria-hidden="true"><Icon name="file" /></span>}
               <span className="ml-agents__file-name" title={f.name}>{f.name}</span>
               {f.state === "saving" ? <span className="ml-agents__muted">saving…</span> : null}
               {f.state === "failed" ? <Badge tone="danger">failed</Badge> : null}
@@ -942,7 +947,7 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
           disabled={!writable}
           onClick={() => picker.current?.click()}
         >
-          📎
+          <Icon name="paperclip" />
         </Button>
         {popup ? <CommandPopup items={matches} active={at} readOnly={readOnly} onPick={choose} onHover={setAt} /> : null}
         <TextArea
@@ -1037,7 +1042,7 @@ function ModelPicker({
       >
         <b>{current?.name ?? pick.connector}</b>
         <span className="ml-pick__model">{pick.model || "no model"}</span>
-        <span className="ml-pick__caret" aria-hidden="true">▴</span>
+        <span className="ml-pick__caret" aria-hidden="true"><Icon name="chevron-up" /></span>
       </button>
       {open ? (
         <ul className="ml-pick__menu" role="menu" aria-label="agents">
@@ -1059,7 +1064,7 @@ function ModelPicker({
                     {x.name}
                     {x.enabled ? "" : " (off)"}
                   </span>
-                  <span aria-hidden="true">▸</span>
+                  <span aria-hidden="true"><Icon name="chevron-right" /></span>
                 </button>
                 {shown ? (
                   <ul className="ml-pick__sub" role="menu" aria-label={`${x.name} models`}>
@@ -1076,7 +1081,7 @@ function ModelPicker({
                               onClick={() => choose(x.id, m)}
                             >
                               <span>{m}</span>
-                              {on ? <span aria-hidden="true">✓</span> : null}
+                              {on ? <span aria-hidden="true"><Icon name="check" /></span> : null}
                             </button>
                           </li>
                         );

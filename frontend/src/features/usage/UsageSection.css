@@ -7,9 +7,10 @@
 .ml-usage__bar {
   display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
   min-height: 66px; padding: var(--space-2) var(--space-5) var(--space-2) 64px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
+  background: var(--panel); backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);
 }
-.ml-usage__title { margin: 0; font-size: 18px; }
+.ml-usage__title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: var(--track-large); }
 .ml-usage__range {
   display: flex; align-items: center; gap: var(--space-2); color: var(--muted);
 }

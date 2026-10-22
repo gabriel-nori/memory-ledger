@@ -20,10 +20,10 @@ describe("Dashboard", () => {
   it("shows the chips that say what a row is", async () => {
     renderApp(<DashboardSection />, { route: "/dashboard" });
     await screen.findByText(/Ship the new UI/);
-    expect(screen.getByText("⏱ 2026-09-20")).toBeInTheDocument();
-    expect(screen.getByText("👤 alex")).toBeInTheDocument();
-    expect(screen.getByText("🔒 blocked ×1")).toBeInTheDocument();
-    expect(screen.getByText("📅 not set")).toBeInTheDocument();
+    expect(screen.getByText("2026-09-20")).toBeInTheDocument();
+    expect(screen.getByText("alex")).toBeInTheDocument();
+    expect(screen.getByText("blocked ×1")).toBeInTheDocument();
+    expect(screen.getByText("not set")).toBeInTheDocument();
   });
 
   it("switches view and asks the server for that one", async () => {
@@ -84,7 +84,7 @@ describe("Dashboard", () => {
   it("completes a task through the archive endpoint, never a delete", async () => {
     const { user } = renderApp(<DashboardSection />, { route: "/dashboard" });
     await user.click(await screen.findByRole("button", { name: /Ship the new UI/ }));
-    await user.click(await screen.findByRole("button", { name: "✓ Complete" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
     await waitFor(() => expect(writes).toContainEqual({ path: "/api/complete", body: { id: "task_ship-ui_a1" } }));
   });
 
@@ -122,7 +122,7 @@ describe("Dashboard", () => {
 
   it("sets a due date as a timestamp the engine can store", async () => {
     const { user } = renderApp(<DashboardSection />, { route: "/dashboard" });
-    const chip = await screen.findByRole("button", { name: "📅 not set" });
+    const chip = await screen.findByRole("button", { name: "not set" });
     await user.click(chip);
     const picker = await screen.findByLabelText(/due date for Write the docs/);
     await user.type(picker, "2026-10-01");

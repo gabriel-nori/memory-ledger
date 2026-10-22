@@ -1,7 +1,7 @@
 .ml-relations { margin-top: var(--space-3); }
 .ml-relations__h {
   margin: var(--space-3) 0 var(--space-2); font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.5px; color: var(--muted); font-weight: 500;
+  letter-spacing: var(--track-caps); color: var(--muted); font-weight: 600;
 }
 .ml-relations__row {
   display: flex; align-items: center; gap: var(--space-2);

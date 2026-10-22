@@ -1,14 +1,19 @@
+/* Cards are grouped surfaces: a lifted fill and a hairline, no heavy box.
+   Interactive ones press in on pointer-down. */
 .ml-card {
-  background: var(--panel-solid); border: 1px solid var(--border);
+  background: var(--panel-solid); border: 0.5px solid var(--border);
   border-radius: var(--radius-lg); padding: var(--space-4);
   margin-bottom: var(--space-3);
+  transition: background-color var(--t-fast) var(--ease-out), transform var(--t-move) var(--ease-spring),
+    box-shadow var(--t-move) var(--ease-spring);
 }
 .ml-card.is-interactive { cursor: pointer; }
-.ml-card.is-interactive:hover { border-color: var(--accent); }
-.ml-card.is-selected { border-color: var(--accent); }
+.ml-card.is-interactive:hover { background: color-mix(in srgb, var(--panel-solid) 90%, white); }
+.ml-card.is-interactive:active { transform: scale(0.99); transition-duration: var(--t-press); }
+.ml-card.is-selected { box-shadow: 0 0 0 1.5px var(--accent); }
 .ml-card__head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
 .ml-card__body { margin-top: var(--space-2); color: var(--fg-dim); }
 .ml-card__actions {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
-  margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border);
+  margin-top: var(--space-3); padding-top: var(--space-3); border-top: 0.5px solid var(--border);
 }

@@ -10,8 +10,7 @@ import {
   Select,
   StatusMessage,
   TextArea,
-  TextInput,
-} from "@/components";
+  TextInput, Icon } from "@/components";
 import type {
   ScriptEntry,
   SlackCommand,
@@ -84,7 +83,7 @@ export function FoldButton({
       aria-expanded={open}
       onClick={onToggle}
     >
-      <span aria-hidden="true">{open ? "▾" : "▸"}</span> {children}
+      <span aria-hidden="true"><Icon name={open ? "chevron-down" : "chevron-right"} /></span> {children}
     </button>
   );
 }

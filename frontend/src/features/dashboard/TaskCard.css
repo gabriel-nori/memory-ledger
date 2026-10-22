@@ -1,6 +1,7 @@
 .ml-task__title {
-  background: none; border: 0; color: var(--fg); font: inherit; font-size: 13.5px;
+  background: none; border: 0; color: var(--fg); font: inherit; font-size: 15px; font-weight: 600; letter-spacing: var(--track-title);
   cursor: pointer; padding: 0; text-align: left; width: 100%;
+  transition: color var(--t-fast) var(--ease-out);
 }
 .ml-task__title:hover { color: var(--accent); }
 .ml-task__chips {
@@ -9,7 +10,7 @@
 .ml-task__waiting { margin: var(--space-2) 0 0; color: var(--muted); font-size: 11.5px; }
 .ml-task__waiting b { color: var(--fg); }
 .ml-task__detail {
-  margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border);
+  margin-top: var(--space-3); padding-top: var(--space-3); border-top: 0.5px solid var(--border);
 }
 .ml-task__body {
   padding: var(--space-3); background: var(--bg-sunken); border-radius: var(--radius);

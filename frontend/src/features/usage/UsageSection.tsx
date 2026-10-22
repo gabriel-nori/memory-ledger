@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
 import { usePref } from "@/hooks/usePrefs";
-import { Button, Select, Spinner, StatusMessage } from "@/components";
+import { Button, Select, Spinner, StatusMessage, Icon } from "@/components";
 import type { UsageReportPayload } from "@/api/types";
 import { OPEN_RANGE, downloadText, lastWeeks, normalizeRange, printReport, reportFilename } from "./report";
 import type { WeekRange } from "./report";
@@ -60,7 +60,7 @@ export function UsageSection() {
               options={options("first week")}
               onChange={(e) => set({ ...range, from: e.target.value })}
             />
-            <span aria-hidden="true">→</span>
+            <span aria-hidden="true"><Icon name="arrow-right" /></span>
             <Select
               aria-label="to week"
               value={range.to}

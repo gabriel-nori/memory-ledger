@@ -1,4 +1,5 @@
 import "./ApiDocsSection.css";
+import { Icon } from "@/components";
 
 /** Swagger UI, rendered by the server from the routes it is running. */
 export const API_DOCS_URL = "./api/docs";
@@ -19,7 +20,7 @@ export function ApiDocsSection() {
       <div className="ml-apidocs__bar">
         <h1 className="ml-apidocs__title">API docs</h1>
         <a className="ml-apidocs__out" href={API_DOCS_URL} target="_blank" rel="noreferrer">
-          open in a new tab <span aria-hidden="true">↗</span>
+          open in a new tab <span aria-hidden="true"><Icon name="external" /></span>
         </a>
       </div>
       <iframe className="ml-apidocs__frame" src={API_DOCS_URL} title="API docs" />

@@ -7,9 +7,10 @@
 .ml-apidocs__bar {
   display: flex; align-items: center; gap: var(--space-3);
   min-height: 66px; padding: 0 var(--space-5) 0 64px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
+  background: var(--panel); backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);
 }
-.ml-apidocs__title { margin: 0; font-size: 18px; }
+.ml-apidocs__title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: var(--track-large); }
 .ml-apidocs__out {
   margin-left: auto; color: var(--muted); font-size: 12.5px; text-decoration: none;
 }

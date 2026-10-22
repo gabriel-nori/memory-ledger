@@ -1,4 +1,4 @@
-import { Button, Checkbox, Select } from "@/components";
+import { Button, Checkbox, Select, Icon } from "@/components";
 import type { AgentConversation, VoiceStatus, VoiceVerbosity } from "@/api/types";
 import { speech } from "./speech";
 import type { VoiceSession } from "./useVoiceSession";
@@ -46,10 +46,10 @@ export function VoiceBar({ session, status, conv, ttsOn, writable, onTts, onVerb
       {recording && session.phase === "dictation" ? (
         <>
           <Button size="sm" variant="primary" onClick={session.stop} aria-label="Stop dictation" title="Stop and keep the text">
-            ■ Stop
+            <Icon name="stop" /> Stop
           </Button>
           <Button size="sm" onClick={session.cancel} aria-label="Cancel dictation" title="Stop and discard what was dictated">
-            ✕ Cancel
+            <Icon name="close" /> Cancel
           </Button>
         </>
       ) : (
@@ -60,7 +60,7 @@ export function VoiceBar({ session, status, conv, ttsOn, writable, onTts, onVerb
           disabled={noMic || busy || talking}
           onClick={session.startDictation}
         >
-          🎤 Dictate
+          <Icon name="mic" /> Dictate
         </Button>
       )}
       <span title={!conv ? "Send the first message to start a conversation by voice" : sttProblem || "Listen, send after a pause, hear the answer, listen again"}>
@@ -81,7 +81,7 @@ export function VoiceBar({ session, status, conv, ttsOn, writable, onTts, onVerb
       </span>
       {talking ? (
         <Button size="sm" variant="primary" onClick={() => speech.interrupt()} aria-label="Stop speaking" title="Stop the voice and clear what is queued; the agent keeps working">
-          ⏹ Stop speaking
+          <Icon name="stop" /> Stop speaking
         </Button>
       ) : null}
       <Select

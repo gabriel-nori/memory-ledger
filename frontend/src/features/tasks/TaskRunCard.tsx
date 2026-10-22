@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "@/api/client";
 import { usePolling } from "@/hooks/usePolling";
-import { Badge, Button, Spinner, StatusMessage } from "@/components";
+import { Badge, Button, Spinner, StatusMessage, Icon } from "@/components";
 import { formatDate } from "@/lib/format";
 import type { ActivityEvent, TaskActivity, TaskDetail, TriggerTask, TranscriptEvent } from "@/api/types";
 import { ACTIVE, PERSON_SOURCES, REPROCESSABLE, ago, duration, requesterOf } from "./filter";
@@ -62,7 +62,7 @@ export function TaskRunCard({ task, open, onToggle, now, onChanged }: TaskRunCar
               <time dateTime={task.received_at}>{formatDate(task.received_at)}</time>
               <span className="ml-run__dim"> · {ago(task.received_at, now)}</span>
             </span>
-            <span className="ml-run__chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
+            <span className="ml-run__chevron" aria-hidden="true"><Icon name={open ? "chevron-down" : "chevron-right"} /></span>
           </span>
         </span>
         {task.text ? <span className="ml-run__text">{task.text}</span> : null}
@@ -481,7 +481,7 @@ function EventRow({ event }: { event: TranscriptEvent }) {
   return (
     <li className={`ml-ev ml-ev--tool${event.is_error ? " is-error" : ""}${pending ? " is-pending" : ""}`}>
       <button type="button" className="ml-ev__tool" aria-expanded={openIt} onClick={() => setOpen(!openIt)}>
-        <span className="ml-ev__chev" aria-hidden="true">{openIt ? "▾" : "▸"}</span>
+        <span className="ml-ev__chev" aria-hidden="true"><Icon name={openIt ? "chevron-down" : "chevron-right"} /></span>
         <b>{event.name}</b>
         <span className="ml-ev__in">{oneLine(event.input)}</span>
         <span className="ml-ev__state">

@@ -198,7 +198,7 @@ describe("the node card", () => {
 
   it("completes from the map, so finishing something never means leaving the graph", async () => {
     const { user } = renderApp(card());
-    await user.click(await screen.findByRole("button", { name: "✓ Complete" }));
+    await user.click(await screen.findByRole("button", { name: "Complete" }));
     await waitFor(() =>
       expect(writes).toContainEqual({ path: "/api/complete", body: { id: "task_ship-ui_a1", note: undefined } }),
     );
@@ -213,7 +213,7 @@ describe("the node card", () => {
 
   it("says a task is archived rather than offering to complete it twice", async () => {
     renderApp(card({ node: graphFixture.nodes[3]! }));
-    expect(await screen.findByText("✓ archived")).toBeInTheDocument();
+    expect(await screen.findByText("archived")).toBeInTheDocument();
   });
 
   it("edits title, realm and body in place, and refuses an empty title", async () => {

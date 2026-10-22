@@ -24,3 +24,5 @@ export { DocCard } from "./DocCard";
 export { Menu } from "./Menu";
 export type { MenuGroup, MenuItem } from "./Menu";
 export { Tree } from "./Tree";
+export { Icon } from "./Icon";
+export type { IconName } from "./Icon";

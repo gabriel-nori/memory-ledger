@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import type { UsageSummary } from "@/api/types";
 import "./UsageMeter.css";
+import { Icon } from "@/components";
 
 const REFRESH_MS = 120_000;
 
@@ -70,7 +71,7 @@ export function UsageMeter({ active }: { active: boolean }) {
           <span className="ml-meter__label">Today est.</span>
           <b>{money(data.today)}</b>
         </span>
-        <span aria-hidden="true" className="ml-meter__chev">{open ? "▾" : "▴"}</span>
+        <span aria-hidden="true" className="ml-meter__chev"><Icon name={open ? "chevron-down" : "chevron-up"} /></span>
       </button>
     </div>
   );
