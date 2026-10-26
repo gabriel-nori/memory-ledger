@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
 import { API_DOCS_URL } from "@/features/apidocs/ApiDocsSection";
 import "./Sidebar.css";
@@ -39,6 +40,12 @@ export interface SidebarProps {
 export function Sidebar({ open, onClose }: SidebarProps) {
   const { meta } = useMeta();
   const brain = meta?.brain_name;
+  const iconVersion = meta?.agent_icon ?? 0;
+  const mark = iconVersion ? (
+    <img className="ml-side__icon" src={api.agentIconUrl(iconVersion)} alt="" />
+  ) : (
+    <Icon name="brain" />
+  );
   const main = SECTIONS.filter((s) => !s.foot);
   const foot = SECTIONS.filter((s) => s.foot);
 
@@ -61,11 +68,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="ml-side__head">
           {brain && brain !== "Brain" ? (
             <span title="second-brain">
-              <Icon name="brain" /> <b>{brain}</b>
+              {mark} <b>{brain}</b>
             </span>
           ) : (
             <span>
-              <Icon name="brain" /> second-<b>brain</b>
+              {mark} second-<b>brain</b>
             </span>
           )}
           <button type="button" className="ml-side__x" onClick={onClose} aria-label="close sections"><Icon name="close" /></button>

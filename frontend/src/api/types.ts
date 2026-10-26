@@ -90,6 +90,8 @@ export interface Meta extends Envelope {
   node_types: string[];
   /** What the brain is called: the sidebar, the tab, `{brain}` in a wake phrase. */
   brain_name: string;
+  /** The uploaded icon's mtime, a cache-buster; 0 means the default favicon. */
+  agent_icon: number;
   owner: string;
   writable: boolean;
   boot: string;
@@ -467,6 +469,8 @@ export interface EffectiveSettings {
   owner_source: SettingSource;
   brain_name: string;
   brain_name_source: SettingSource;
+  /** The uploaded icon's filename in the brain home; "" means the default favicon. */
+  agent_icon: string;
   backend: string;
   backends: string[];
   autosync: boolean;

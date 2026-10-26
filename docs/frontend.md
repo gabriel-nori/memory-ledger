@@ -130,7 +130,13 @@ a `NavLink` — that opens `/api/docs` in a tab of its own, and the page's headi
 row carries the same link. The two are siblings, since a link inside a link is
 invalid HTML.
 
-**The favicon is the map, not a brain.** `public/favicon.svg` draws a hub with
+**The icon is the person's to set.** Settings > Preferences uploads one image
+(PNG, JPG, ICO or SVG, 512 KB) that the tab, the sidebar and the Ledger Agent box
+all show; with none set, the default below applies. The tab's `<link rel="icon">`
+is repointed at `/api/agent-icon?v=<mtime>` from `AppShell` once `/api/meta` says
+one is set.
+
+**The default favicon is the map, not a brain.** `public/favicon.svg` draws a hub with
 three satellites in the app's own token colours — the one shape from the graph
 that survives being drawn at 16px, where a brain outline is a grey smudge. Its
 ground is painted rather than transparent so it holds up on a light tab strip;

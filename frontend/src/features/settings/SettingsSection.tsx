@@ -197,6 +197,36 @@ function PreferencesCard({
     }
   };
 
+  // The icon has its own endpoint: an image is not a preference to validate in a form.
+  const saveIcon = async (data: string) => {
+    setBusy(true);
+    setOut(null);
+    try {
+      await api.saveAgentIcon(data);
+      setOut({ text: data ? "Icon saved." : "Icon reset to the default.", tone: "success" });
+      onSaved();
+      meta.reload(); // the tab and the sidebar read it from the vocabulary
+    } catch (err) {
+      setOut({ text: err instanceof Error ? err.message : String(err), tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadIcon = async (file: File) => {
+    if (file.size > 512 * 1024) {
+      setOut({ text: "The icon is over 512 KB.", tone: "error" });
+      return;
+    }
+    const url = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    await saveIcon(url.slice(url.indexOf(",") + 1));
+  };
+
   const overridden = Object.keys(settings.env);
 
   return (
@@ -244,6 +274,40 @@ function PreferencesCard({
             placeholder={eff.brain_name}
             onChange={(e) => setBrainName(e.target.value)}
           />
+        )}
+      </Field>
+
+      <Field
+        label="The brain's icon"
+        hint={`Shown in the browser tab, the sidebar and the ${eff.brain_name} agent box. PNG, JPG, ICO or SVG, up to 512 KB. In effect: ${
+          eff.agent_icon || "the default favicon"
+        }.`}
+      >
+        {(id) => (
+          <div className="ml-settings__icon">
+            <img
+              className="ml-settings__icon-preview"
+              src={api.agentIconUrl(meta.meta?.agent_icon ?? 0)}
+              alt=""
+            />
+            <input
+              id={id}
+              type="file"
+              accept="image/png,image/jpeg,image/x-icon,image/vnd.microsoft.icon,image/svg+xml,.ico"
+              disabled={busy || !settings.writable}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadIcon(file);
+              }}
+            />
+            <Button
+              onClick={() => void saveIcon("")}
+              disabled={busy || !settings.writable || !eff.agent_icon}
+            >
+              Reset to default
+            </Button>
+          </div>
         )}
       </Field>
 

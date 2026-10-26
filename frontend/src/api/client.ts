@@ -217,6 +217,10 @@ export const api = {
   mergePerson: (canonical: string, duplicate: string) =>
     post("/api/merge-person", { canonical, duplicate }),
   addAlias: (id: string, alias: string) => post("/api/add-alias", { id, alias }),
+  /** The brain's icon; `v` busts the cache when a new one is uploaded. */
+  agentIconUrl: (v: number | string = 0) => `${BASE}/api/agent-icon${queryString({ v })}`,
+  /** `data` is the image, base64; an empty string resets to the default favicon. */
+  saveAgentIcon: (data: string) => post("/api/agent-icon", { data }),
   saveSettings: (body: Partial<import("./types").StoredSettings>) => post("/api/settings", body),
   saveNeo4j: (body: Record<string, unknown>) => post("/api/neo4j-config", body),
   testNeo4j: () => post("/api/neo4j-test", {}),
@@ -299,6 +303,9 @@ export const api = {
   /** Save a file the owner attached to the chat under <home>/attachments (base64). No model call. */
   attachFile: (name: string, data: string) =>
     post<import("./types").AgentAttachResult>("/api/agent-attach", { name, data }),
+  /** Opens the Ledger Agent floating box on this Mac. No model call. */
+  openAgentPanel: (body: { cwd?: string } = {}) =>
+    post<{ ok: boolean; cwd?: string; building?: boolean; already_open?: boolean; error?: string }>("/api/agent-panel", body),
   /** Starts a model call: the reply runs in the background, poll the thread. */
   sendAgent: (body: {
     text: string;

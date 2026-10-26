@@ -261,7 +261,7 @@ def learned_skills_dir() -> Path:
 # ---------------------------------------------------------------------------
 SETTING_KEYS = ["tz", "realm", "owner", "brain_name", "backend", "autosync", "consolidate",
                 "map_poll_seconds", "dash_refresh_seconds", "ui_sync",
-                "learned_rules", "prompt_recall", "agents_sync"]
+                "learned_rules", "prompt_recall", "agents_sync", "agent_icon"]
 
 # `backend` is where READS come from by default (writes always hit SQLite first
 # and mirror onward, whatever this says). `auto` is the honest setting for a
@@ -285,6 +285,25 @@ DEFAULT_BRAIN_NAME = "Brain"
 
 def settings_path() -> Path:
     return home_dir() / "settings.json"
+
+
+# The brain's icon: one image the person uploads in Settings, kept in the brain
+# home as `agent-icon.<ext>`. The `agent_icon` setting holds just that filename.
+# The browser tab, the sidebar and the Ledger Agent box all read it from here.
+AGENT_ICON_TYPES = {"png": "image/png", "jpg": "image/jpeg", "ico": "image/x-icon",
+                    "svg": "image/svg+xml"}
+AGENT_ICON_MAX_BYTES = 512 * 1024
+
+
+def agent_icon_path() -> Path | None:
+    """The uploaded icon's file, or None when none is set (or it has gone
+    missing), so every caller falls back to the default favicon."""
+    name = setting("agent_icon", "")
+    if not isinstance(name, str) or Path(name).name != name \
+            or name.rpartition(".")[2] not in AGENT_ICON_TYPES:
+        return None
+    p = home_dir() / name
+    return p if p.is_file() else None
 
 
 #: Reading the preferences file is _switch's job — flag() there resolves the

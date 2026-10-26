@@ -60,7 +60,8 @@ import "./AgentsSection.css";
  * between turns is free: the next reply is written by whichever is picked.
  */
 export function AgentsSection() {
-  const { writable } = useMeta();
+  const { writable, meta } = useMeta();
+  const agentName = `${meta?.brain_name ?? "Ledger"} agent`;
   const [params, setParams] = useSearchParams();
   const selected = params.get("c") ?? "";
   const [q, setQ] = useState("");
@@ -106,6 +107,15 @@ export function AgentsSection() {
             <SearchInput value={q} onChange={setQ} placeholder="search conversations" aria-label="search conversations" />
             <Button size="sm" variant="primary" onClick={() => open("")} title="Start a new conversation" disabled={!writable}>
               ＋ New
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void api.openAgentPanel()}
+              title={`Open the ${agentName}: a floating terminal running Claude Code (the first open builds it, ~1-2 min)`}
+              aria-label={`pop out the ${agentName}`}
+              disabled={!writable}
+            >
+              <Icon name="external" />
             </Button>
           </div>
           {!convs.data && !convs.error ? <Spinner label="reading conversations" /> : null}

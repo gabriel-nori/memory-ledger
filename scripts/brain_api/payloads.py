@@ -205,6 +205,8 @@ def settings_payload() -> dict:
             "brain_name": graph.brain_name(),
             "brain_name_source": ("env" if "brain_name" in env else
                                   "settings" if stored.get("brain_name") else "default"),
+            # the uploaded icon's filename, "" when the default is in use
+            "agent_icon": p.name if (p := graph.agent_icon_path()) else "",
             # what a CLI read (`brain_query.py`) uses when given no --backend.
             # This page and the map always ask for "auto", so they are unaffected.
             "backend": brain_query.default_backend(),

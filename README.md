@@ -576,7 +576,11 @@ hamburger menu on the left (`m` toggles it):
   ✓ when it answered. Switch agent or model mid-conversation, keep it read-only
   (the **Read-only** box, ticked by default) or untick it to turn tools on, and open the folded log of every tool and skill it used. The
   chat header searches the thread, shows the live cost, exports PDF / text /
-  JSON, and hides a chat under the active list.
+  JSON, and hides a chat under the active list. The **Ledger Agent** is the
+  other way to talk to Claude from here: a floating terminal box over whatever
+  you are doing, running the real `claude` CLI in the folder you opened it from
+  (`python3 scripts/agent_panel.py`, or the pop-out next to **＋ New**) — see
+  [docs/agents.md](docs/agents.md#ledger-agent-the-floating-box).
 - **Capabilities** — skills, rules, processes and scripts, in that order. The
   two contract trees (built-in and learned), nested by the
   `requires` edge, beside the rule catalogue, the processes, and your local

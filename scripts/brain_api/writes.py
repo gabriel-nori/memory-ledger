@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 import _platform
 import agent_commands
+import agent_panel
 import agents
 import b2b
 import custom_trigger
@@ -369,6 +370,52 @@ def save_settings(data: m.Settings = body(m.Settings)):
     # This process read DEFAULT_REALM once, at import. Re-resolve it so a realm
     # changed in the browser applies to the next write, not the next restart.
     graph.DEFAULT_REALM = graph.setting("realm", graph.REALM_FALLBACK)
+    return reply(payloads.settings_payload())
+
+
+def _icon_type(raw: bytes) -> str:
+    """The extension this image really is, from its bytes (never from a name the
+    browser sent), or "" when it is none of the four we take."""
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if raw.startswith(b"\x00\x00\x01\x00"):
+        return "ico"
+    head = raw[:2000].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    if (head.startswith(b"<?xml") or head.startswith(b"<svg")) and b"<svg" in raw[:2000].lower():
+        return "svg"
+    return ""
+
+
+@router.post("/agent-icon", tags=["settings"], summary="Set or reset the brain's icon",
+             description="Stores the image as `<home>/agent-icon.<ext>` and records it in "
+                         "the `agent_icon` setting. The type is read from the bytes. An empty "
+                         "`data` removes it, back to the default favicon.")
+def save_agent_icon(data: m.AgentIcon = body(m.AgentIcon)):
+    if not data.data:
+        for old in graph.home_dir().glob("agent-icon.*"):
+            if old.suffix[1:] in graph.AGENT_ICON_TYPES:
+                old.unlink(missing_ok=True)
+        graph.save_settings({"agent_icon": ""})
+        return reply(payloads.settings_payload())
+    try:
+        raw = base64.b64decode(data.data, validate=True)
+    except (binascii.Error, ValueError):
+        return reply({"ok": False, "error": "the icon is not valid base64"})
+    if len(raw) > graph.AGENT_ICON_MAX_BYTES:
+        return reply({"ok": False, "error": f"the icon is over {graph.AGENT_ICON_MAX_BYTES // 1024} KB"})
+    ext = _icon_type(raw)
+    if not ext:
+        return reply({"ok": False, "error": "the icon must be a PNG, JPG, ICO or SVG image"})
+    if ext == "svg" and re.search(rb"<script|\son\w+\s*=|javascript:", raw, re.I):
+        return reply({"ok": False, "error": "an SVG icon may not contain scripts"})
+    name = f"agent-icon.{ext}"
+    for old in graph.home_dir().glob("agent-icon.*"):
+        if old.name != name and old.suffix[1:] in graph.AGENT_ICON_TYPES:
+            old.unlink(missing_ok=True)
+    (graph.home_dir() / name).write_bytes(raw)
+    graph.save_settings({"agent_icon": name})
     return reply(payloads.settings_payload())
 
 
@@ -850,6 +897,14 @@ def agent_retry(data: m.AgentRetry = body(m.AgentRetry)):
                          "session is killed; an Ollama chat stops at its next round.")
 def agent_cancel(data: m.AgentCancel = body(m.AgentCancel)):
     return reply(agents.cancel(agents.db(), clip(data.id, 80)))
+
+
+@router.post("/agent-panel", tags=["agents"], summary="Open the Ledger Agent floating box",
+             description="Opens the floating terminal box on this Mac (macOS only), detached "
+                         "from the server, running the `claude` CLI in `cwd`. The first open "
+                         "builds it (`building: true`, ~1-2 min). No model call until you ask.")
+def agent_panel_open(data: m.AgentPanel = body(m.AgentPanel)):
+    return reply(agent_panel.launch(clip(data.cwd, 1000)))
 
 
 @router.post("/agent-plugin", tags=["agents"], summary="Turn an installed plugin on or off",

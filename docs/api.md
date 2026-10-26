@@ -125,6 +125,8 @@ Every response is `Cache-Control: no-store`.
 | `/api/bundle?name=<file>` | an exported bundle, as a zip attachment. `name` is reduced to a bare filename, so it can only name a file in `<home>/bundles` |
 | `/api/suggest-links` | proposed edges awaiting acceptance |
 | `/api/search?q=<q>` | node picker results for the relation editor |
+| `/api/agent-icon` (POST) | `{data?}` | the brain's icon: `data` is the image, base64 (PNG, JPG, ICO or SVG, up to 512 KB, type read from the bytes, SVG with scripts refused). Stored as `<home>/agent-icon.<ext>` and recorded in the `agent_icon` setting; empty `data` removes it. Answers with the settings payload |
+| `/api/agent-icon` | the brain's icon: the image uploaded in Settings, else the default `favicon.svg`. `/api/meta` carries `agent_icon` (its mtime, 0 = default) as a cache-buster |
 | `/api/settings` | stored preferences, plus what is actually `effective` and which keys the environment has overridden |
 | `/api/timezones` | every IANA zone name, for the timezone picker |
 | `/api/status` | where the data lives: db path, home, node/edge counts, queued writes, loose captures, and the neo4j master's reachability |
@@ -248,6 +250,7 @@ since the dashboard lists tasks and a kind with none would be dead UI.
 | `/api/agent-retry` | `{id}` | runs a failed reply again with the conversation's current connector. **Starts a model call** |
 | `/api/agent-cancel` | `{id}` | stops a queued or running reply: it fails at once as cancelled (Retry runs it again). A Claude session is killed; an Ollama chat stops at its next round |
 | `/api/agent-plugin` | `{key, enabled}` | turns an installed plugin on or off in `~/.claude/settings.json` (`enabledPlugins`, which every Claude session reads); answers the new `/api/agent-commands` payload |
+| `/api/agent-panel` | `{cwd?}` | opens the Ledger Agent floating terminal box on this Mac (macOS only), detached from the server, running the `claude` CLI in `cwd` (default: the repo). The first open builds it (`building: true`). No model call until you ask |
 | `/api/voice-config` | `{stt_language?, stt_auto?, tts_language?, tts_auto?, translate?, translate_target?, tts_enabled?, tts_background?, silence_s?, tts_voices?, verbosity?}` | merges a validated patch into `<home>/voice.json` |
 | `/api/voice-translate` | `{text, target?}` | one block translated (a model call); skipped when already in the target |
 | `/api/voice-speak` | `{text, language?, voice?}` | the block as a WAV; open on `--no-write` too |
@@ -324,7 +327,7 @@ reason, and the server stays up either way.
 
 Preferences live in **`<home>/settings.json`**, not in the browser. A timezone is
 only useful if the CLI, the hooks and any cron reading the same brain agree with
-the page that set it, and `localStorage` cannot do that. Ten keys, all optional:
+the page that set it, and `localStorage` cannot do that. Eleven keys, all optional:
 
 | Key | Effect |
 |---|---|
@@ -332,6 +335,7 @@ the page that set it, and `localStorage` cannot do that. Ten keys, all optional:
 | `realm` | default realm for new nodes when nothing else says |
 | `owner` | who "me" is — what `--mine` filters on, and what an unassigned task falls back to |
 | `brain_name` | what the brain answers to: `{brain}` in a wake phrase, a signature or a run command, and the name in the page's sidebar and tab (default `Brain`; needs a letter or digit, no braces, up to 40) |
+| `agent_icon` | filename of the brain's uploaded icon in `<home>` (`agent-icon.png`, `.jpg`, `.ico`, `.svg`). Set by `POST /api/agent-icon`, not `POST /api/settings`; empty means the default favicon |
 | `backend` | which store a CLI read uses when given no `--backend` (`sqlite`, `neo4j`, `auto`) |
 | `autosync` | push each write to the neo4j mirror, instead of only queueing it (default on) |
 | `consolidate` | let the daily hook fold closed days into digests (default on) |

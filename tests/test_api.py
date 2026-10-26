@@ -59,14 +59,14 @@ POST_ROUTES = [
     "/api/voice-config", "/api/voice-translate",
     "/api/set-due", "/api/add-task", "/api/complete", "/api/set-status",
     "/api/set-assignee", "/api/assign", "/api/merge-person", "/api/add-alias",
-    "/api/update-node", "/api/link", "/api/unlink", "/api/propose-idea", "/api/settings",
+    "/api/update-node", "/api/link", "/api/unlink", "/api/propose-idea", "/api/settings", "/api/agent-icon",
     "/api/neo4j-config", "/api/neo4j-test", "/api/flush", "/api/prune",
     "/api/capture", "/api/consolidate", "/api/ui-prefs", "/api/backup", "/api/rename-realm",
     "/api/create-rule", "/api/propose-rules", "/api/accept-rule", "/api/reject-rule",
     "/api/create-skill", "/api/create-process",
     "/api/export-skills", "/api/ingest-skills", "/api/export-bundle",
     "/api/upload-bundle", "/api/import-bundle", "/api/delete-contracts",
-    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config",
+    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config", "/api/agent-panel",
     "/api/trigger-gate", "/api/trigger-action", "/api/trigger-config", "/api/trigger-check",
     "/api/trigger-channel", "/api/trigger-person", "/api/trigger-decline", "/api/trigger-reprocess",
     "/api/trigger-cancel", "/api/trigger-scan",
@@ -927,6 +927,50 @@ def test_the_brain_name_can_be_set_tidied_and_reset(api: Api) -> None:
     assert api.get(META).json()["brain_name"] == "Jarvis"
     api.post(SETTINGS, {"brain_name": ""})
     assert api.get(META).json()["brain_name"] == "Brain"
+
+
+PNG_ICON = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+SVG_ICON = b'<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>'
+AGENT_ICON = "/api/agent-icon"
+
+
+def _icon(raw: bytes) -> dict:
+    return {"data": base64.b64encode(raw).decode()}
+
+
+def test_the_agent_icon_defaults_to_the_favicon(api: Api) -> None:
+    api.post(AGENT_ICON, {})
+    r = api.get(AGENT_ICON)
+    assert r.status == 200 and r.ctype == "image/svg+xml"
+    assert api.get(META).json()["agent_icon"] == 0
+
+
+def test_the_agent_icon_can_be_set_served_replaced_and_reset(api: Api) -> None:
+    saved = api.post(AGENT_ICON, _icon(PNG_ICON)).json()
+    assert saved["effective"]["agent_icon"] == "agent-icon.png"
+    assert (api.home / "agent-icon.png").read_bytes() == PNG_ICON
+    r = api.get(AGENT_ICON)
+    assert r.ctype == "image/png" and r.raw == PNG_ICON
+    assert api.get(META).json()["agent_icon"] > 0
+    api.post(AGENT_ICON, _icon(SVG_ICON))            # another type replaces the first file
+    assert not (api.home / "agent-icon.png").exists()
+    assert api.get(AGENT_ICON).ctype == "image/svg+xml"
+    reset = api.post(AGENT_ICON, {}).json()
+    assert reset["effective"]["agent_icon"] == ""
+    assert not list(api.home.glob("agent-icon.*"))
+
+
+@pytest.mark.parametrize(("body", "needle"), [
+    ({"data": "!!not base64!!"}, "not valid base64"),
+    (_icon(b"GIF89a" + b"\x00" * 20), "PNG, JPG, ICO or SVG"),
+    (_icon(PNG_ICON + b"\x00" * (512 * 1024)), "over 512 KB"),
+    (_icon(b'<svg><script>alert(1)</script></svg>'), "no scripts|may not contain scripts"),
+], ids=["base64", "type", "size", "svg-script"])
+def test_a_bad_agent_icon_is_refused_and_changes_nothing(api: Api, body: dict, needle: str) -> None:
+    api.post(AGENT_ICON, {})
+    r = api.post(AGENT_ICON, body)
+    assert r.status == 400 and any(n in r.json()["error"] for n in needle.split("|"))
+    assert api.get(META).json()["agent_icon"] == 0
 
 
 def test_a_realm_set_applies_to_the_next_write_not_the_next_restart(api: Api) -> None:

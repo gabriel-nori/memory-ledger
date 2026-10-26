@@ -159,6 +159,12 @@ class Settings(Body):
     dash_refresh_seconds: Any = Field(None, description="5–3600.")
 
 
+class AgentIcon(Body):
+    """The brain's icon. An empty or missing `data` resets it to the default."""
+    data: Optional[str] = Field(None, description="The image, base64 (PNG, JPG, ICO or SVG, "
+                                                   "up to 512 KB). Empty resets to the default.")
+
+
 class Neo4jConfig(Body):
     url: Text = T("The neo4j HTTP endpoint, e.g. http://host:7474. Empty removes "
                   "the master.")
@@ -458,6 +464,10 @@ class AgentRetry(Body):
 
 class AgentCancel(Body):
     id: Text = T("A reply that is queued or running.")
+
+
+class AgentPanel(Body):
+    cwd: Text = T("The folder claude starts in; empty is the memory-ledger repo.")
 
 
 class AgentPlugin(Body):

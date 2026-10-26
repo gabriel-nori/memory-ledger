@@ -9,6 +9,7 @@ and the bundle download (404).
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query
@@ -194,6 +195,21 @@ def rule_proposals(status: str = Query("proposed", description="proposed | accep
                         "file, so `env` names every key the shell has taken over.")
 def settings():
     return payloads.settings_payload()
+
+
+@router.get("/agent-icon", tags=["settings"], summary="The brain's icon",
+            response_class=FileResponse,
+            responses={200: {"content": {"image/*": {}}}},
+            description="The image uploaded in Settings, or the default favicon when none "
+                        "is set. The tab, the sidebar and the Ledger Agent box show it.")
+def agent_icon():
+    path = graph.agent_icon_path() or (Path(__file__).resolve().parents[2]
+                                       / "frontend" / "public" / "favicon.svg")
+    return FileResponse(path, media_type=graph.AGENT_ICON_TYPES[path.suffix[1:]],
+                        headers={"cache-control": "no-cache",
+                                 # an uploaded SVG opened on its own runs as a page
+                                 "content-security-policy": "sandbox; default-src 'none'; "
+                                                            "style-src 'unsafe-inline'"})
 
 
 @router.get("/timezones", tags=["settings"], summary="Every IANA zone name, from the stdlib")
@@ -401,6 +417,8 @@ def meta():
         # legitimately writes a type this brain has never held
         "node_types": graph.NODE_TYPES,
         "brain_name": graph.brain_name(), "owner": graph.owner(),
+        # the uploaded icon's mtime (0 = the default one): a cache-buster for the tab
+        "agent_icon": int(p.stat().st_mtime) if (p := graph.agent_icon_path()) else 0,
         "writable": state.WRITABLE, "boot": state.BOOT,
     }
 

@@ -37,6 +37,7 @@ export const metaFixture: Meta = {
   no_kind_token: "(none)",
   types: { task: 9, person: 4, note: 6 },
   brain_name: "Jarvis",
+  agent_icon: 0,
   owner: "Alex",
   skill_sections: [
     { field: "when_to_use", heading: "## When to use", required: true, generated: false },
@@ -318,6 +319,7 @@ export const settingsFixture: Settings = {
     owner_source: "default",
     brain_name: "Jarvis",
     brain_name_source: "settings",
+    agent_icon: "",
     backend: "auto",
     backends: ["sqlite", "neo4j", "auto"],
     autosync: true,

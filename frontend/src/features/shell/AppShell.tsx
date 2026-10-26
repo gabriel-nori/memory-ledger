@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
+import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
 import { StatusMessage, Icon } from "@/components";
 import "./AppShell.css";
@@ -32,6 +33,17 @@ export function AppShell() {
   useEffect(() => {
     document.title = brain && brain !== "Brain" ? `${brain} · second-brain` : "second-brain";
   }, [brain]);
+
+  // The tab shows the brain's own icon once one is uploaded, the default otherwise.
+  const iconVersion = meta?.agent_icon ?? 0;
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const original = link.getAttribute("href") ?? "./favicon.svg";
+    link.removeAttribute("type"); // the browser sniffs it: the upload may not be an SVG
+    link.href = iconVersion ? api.agentIconUrl(iconVersion) : original;
+    return () => link.setAttribute("href", original);
+  }, [iconVersion]);
 
   useKeyboardShortcut("m", useCallback(() => setNavOpen((v) => !v), []));
 

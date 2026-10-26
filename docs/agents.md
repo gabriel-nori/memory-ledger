@@ -288,6 +288,43 @@ Texts from subagents show as bubbles like the agent's own; only their thinking
 stays folded in the tool log. The last text is dropped only when it equals the
 final reply exactly.
 
+## Ledger Agent: the floating box
+
+A floating terminal over whatever you are doing, running the `claude` CLI — the
+same idea as Dora's note, but a real terminal, so Claude Code works exactly as it
+does anywhere: **Ctrl-C** stops a reply, **Esc** interrupts, `/model`, `/clear`
+(a clean session), `/resume` and every slash command and permission prompt.
+Open it from a terminal, in the folder Claude should work in, or with the
+pop-out button next to **＋ New** (Claude then starts in this repo). It always
+opens on **Sonnet** (`claude --model sonnet`, the same as `/model sonnet`); pass
+your own `--model` after `--` to start on another one. Its status line leaves
+out the 🧬 ledger and 🐬 Dora segments: the box starts claude with
+`SHOW_LEDGER=0 SHOW_DORA=0` (read by the shared statusline script) and
+`LEDGER_AGENT=1` (for any other status line to check). Every other terminal
+keeps its full status line:
+
+    python3 scripts/agent_panel.py                     # claude, in this folder
+    python3 scripts/agent_panel.py --cwd ~/dev/x       # ...or in another one
+    python3 scripts/agent_panel.py -- --model claude-opus-5-5   # args after -- go to claude
+
+- **Thin by default** (720×250); **⌘E** or ⤢ expands it (960×660) and back.
+  Drag any edge or corner to resize whichever size is showing; each size is
+  remembered on its own (minimum 460×170). The top-left corner stays put on a
+  switch, and the box stays on its screen. Sizes, mode and position survive a
+  relaunch; a position on a monitor that is gone falls back to the main screen.
+- **Its icon is the brain's.** The header shows the icon set in Settings >
+  Preferences (the `agent_icon` setting, a file in `<home>`), the same one the
+  browser tab and sidebar show; with none set it shows `frontend/public/favicon.svg`.
+  `agent_panel.py` hands the box that file's path.
+- ⌘C / ⌘V copy and paste, ⌘+ / ⌘− change the font, ⌘W or ✕ closes (and hangs
+  up claude). When claude exits (`/exit`), the box closes.
+- It is a tiny AppKit app (`scripts/agent_terminal.swift`) compiled together
+  with SwiftTerm's sources (a pinned commit, cloned once into `<home>/build/`)
+  into `<home>/LedgerAgentTerminal.app`. The first run builds it (~1-2 min,
+  needs `xcode-select --install`); `--build` only builds.
+- What you ask there is a normal Claude Code session, not an Agents-tab
+  conversation.
+
 ## Voice
 
 Dictation, reading aloud and a hands-free conversation mode, in the chat and in
