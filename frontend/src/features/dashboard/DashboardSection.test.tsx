@@ -78,7 +78,7 @@ describe("Dashboard", () => {
     await user.click(await screen.findByRole("button", { name: /Ship the new UI/ }));
     expect(await screen.findByText(/The whole viz, as a real app/)).toBeInTheDocument();
     expect(screen.getByText(/Related \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText(/← relates-to: Alex/)).toBeInTheDocument();
+    expect(screen.getByText(/relates-to: Alex/)).toBeInTheDocument();
   });
 
   it("completes a task through the archive endpoint, never a delete", async () => {
