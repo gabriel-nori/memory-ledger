@@ -208,6 +208,27 @@ Storage is two tables in the brain's database, `agent_conv` and `agent_msg`. The
 graph holds the memory (`conversation` and `message` nodes). The tables hold the
 UI's view: status, event log, cost, tokens.
 
+## Sub-agents
+
+Behind the `subagent_tracking` flag (Settings > Flags, off by default; flags are defined in
+`scripts/flags.py`). Off, a sub-agent is only an `agent` event in its reply's log.
+
+On, each one is a row of its own in `agent_msg` (`role='subagent'`): `parent_msg_id` is the row
+that started it (the reply, or another sub-agent), `reply_to` is always the reply at the root, so
+everything one action spawned is `WHERE reply_to = <reply>`. It keeps its own prompt (`prompt`),
+answer (`text`), status (`running | done | error`), tokens, cost and tool log; what it did no longer
+lands in the reply's log, which keeps only the call. Its cost is already in the reply's total, so
+thread and conversation sums skip sub-agent rows. `GET /api/agent-thread` adds `subagents`
+(flat) while the flag is on.
+
+The UI shows them as blocks under the message, one indent per level: folded to the label, the
+task and the status; click to open the prompt, log, answer and cost. A sub-agent's own
+sub-agents stay visible while it is folded.
+
+`POST /api/agent-spawn {parent_id, prompt}` starts one by hand ("Sub-agent" under a finished
+reply): a queued row that runs like a reply, given the parent's text as context. `agent-cancel`
+accepts a sub-agent id.
+
 ## Syncing chats across machines
 
 Off by default. With it on, `agent_conv` and `agent_msg` ride along with the
