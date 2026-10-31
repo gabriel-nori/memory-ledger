@@ -158,6 +158,10 @@ export const api = {
     get<import("./types").UsageReportPayload>("/api/usage-report", range, signal),
   trigger: (signal?: AbortSignal) =>
     get<import("./types").TriggerStatus>("/api/trigger", { limit: 5 }, signal),
+  flags: (signal?: AbortSignal) =>
+    get<import("./types").FlagsPayload>("/api/flags", undefined, signal),
+  setFlag: (name: string, enabled: boolean) =>
+    post<import("./types").FlagsPayload>("/api/flag", { name, enabled }),
   agents: (signal?: AbortSignal) =>
     get<import("./types").AgentsStatus>("/api/agents", undefined, signal),
   /** The slash commands (skills, plugin commands) and the installed plugins, read from disk. */

@@ -1549,3 +1549,17 @@ export interface CustomTriggerDryRun {
   error: string;
   warnings?: string[];
 }
+
+export interface FeatureFlag {
+  name: string;
+  title: string;
+  description: string;
+  default: boolean;
+  enabled: boolean;
+  /** true once someone switched it; false while it follows its default. */
+  saved: boolean;
+}
+
+export interface FlagsPayload extends Envelope {
+  flags: FeatureFlag[];
+}
