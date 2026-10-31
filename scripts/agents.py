@@ -627,12 +627,51 @@ def retry(con: sqlite3.Connection, msg_id: str, start: bool = True) -> dict[str,
     return {"ok": True, "reply_id": msg_id}
 
 
+def spawn(con: sqlite3.Connection, parent_id: str, prompt: str, start: bool = True) -> dict[str, Any]:
+    """Start a sub-agent by hand from a message: a row of its own under `parent_id` (a reply, or
+    a subagent), run like a reply and shown as a block under it. Needs `subagent_tracking`."""
+    if not flags.enabled("subagent_tracking"):
+        return {"ok": False, "error": "turn on the subagent_tracking flag (Settings > Flags)"}
+    if not prompt.strip():
+        return {"ok": False, "error": "say what the sub-agent should do"}
+    p = con.execute("SELECT * FROM agent_msg WHERE id=? AND role IN ('agent','subagent')",
+                    (parent_id,)).fetchone()
+    if not p:
+        return {"ok": False, "error": f"no reply {parent_id}"}
+    conv = get_conv(con, p["conv_id"])
+    root = p["id"] if p["role"] == "agent" else p["reply_to"]
+    sid = _new_id("asub")
+    con.execute(
+        "INSERT INTO agent_msg(id,conv_id,role,at,status,reply_to,connector,model,full_tools,"
+        "parent_msg_id,label,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (sid, p["conv_id"], "subagent", now_iso(), "queued", root, conv["connector"],
+         conv["model"], int(conv["full_tools"]), parent_id, "started by hand",
+         prompt.strip()[:TEXT_MAX]))
+    con.commit()
+    if start:
+        dispatch()
+    return {"ok": True, "subagent_id": sid}
+
+
+def _subagent_turn(con: sqlite3.Connection, row: dict[str, Any], c: dict[str, Any]) -> dict[str, Any]:
+    parent = con.execute("SELECT text FROM agent_msg WHERE id=?", (row["parent_msg_id"],)).fetchone()
+    system = (system_prompt(get_conv(con, row["conv_id"]), 0, c["kind"])
+              + "\nYou are a sub-agent the owner started from one of your own messages. Do only "
+                "the task below and answer with its result.")
+    prompt = ""
+    if parent and (parent["text"] or "").strip():
+        prompt = "The message you were started from:\n" + parent["text"] + "\n\n"
+    return {"system": system, "prompt": prompt + "Your task:\n" + row["prompt"], "context": [],
+            "question": row["prompt"]}
+
+
 def cancel(con: sqlite3.Connection, msg_id: str) -> dict[str, Any]:
     """Stop a queued or running reply. It fails at once with `CANCELLED`, so
     the thread shows it and Retry runs it again; a running Claude session is
     killed, a running Ollama chat stops at its next round and its answer is
     dropped."""
-    r = con.execute("SELECT * FROM agent_msg WHERE id=? AND role='agent'", (msg_id,)).fetchone()
+    r = con.execute("SELECT * FROM agent_msg WHERE id=? AND role IN ('agent','subagent')",
+                    (msg_id,)).fetchone()
     if not r:
         return {"ok": False, "error": f"no reply {msg_id}"}
     if r["status"] not in PENDING:
@@ -1291,8 +1330,11 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
             raise AgentError(f"no connector {reply['connector']!r}")
         if not c.get("enabled"):
             raise AgentError(f"the {c['name']} connector is turned off")
-        turn = build_turn(con, reply)
-        _update(con, msg_id, context=turn["context"])
+        if reply["role"] == "subagent":        # started by hand, see spawn()
+            turn = _subagent_turn(con, reply, c)
+        else:
+            turn = build_turn(con, reply)
+            _update(con, msg_id, context=turn["context"])
         res = RUNNERS[c["kind"]](con, reply, c, turn)
     except Exception as e:
         if _is_cancelled(msg_id):              # cancel already wrote the reply's end
@@ -1311,6 +1353,8 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
             tokens_out=res["tokens"][1], finished_at=now_iso())
     con.execute("UPDATE agent_conv SET updated_at=? WHERE id=?", (now_iso(), reply["conv_id"]))
     con.commit()
+    if reply["role"] == "subagent":
+        return {"ok": True, "status": status}
     try:
         remember(con, msg_id, turn["question"], text)
     except Exception:

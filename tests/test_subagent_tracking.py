@@ -101,3 +101,20 @@ def test_an_error_result_marks_the_subagent_and_a_cancel_closes_the_open_ones(co
     assert st == {"t1": "error", "t3": "running"}
     agents.cancel(con, "r1")
     assert con.execute("SELECT status FROM agent_msg WHERE tool_use_id='t3'").fetchone()[0] == "error"
+
+
+def test_spawn_needs_the_flag(con):
+    assert agents.spawn(con, "r1", "do it", start=False)["ok"] is False
+
+
+def test_spawn_makes_a_queued_row_under_the_message(con):
+    flags.set_flag("subagent_tracking", True)
+    first = agents.spawn(con, "r1", "check A", start=False)
+    assert first["ok"]
+    nested = agents.spawn(con, first["subagent_id"], "check B", start=False)
+    rows = {r["id"]: r for r in con.execute("SELECT * FROM agent_msg WHERE role='subagent'")}
+    a, b = rows[first["subagent_id"]], rows[nested["subagent_id"]]
+    assert (a["status"], a["parent_msg_id"], a["reply_to"]) == ("queued", "r1", "r1")
+    assert (b["parent_msg_id"], b["reply_to"]) == (a["id"], "r1")      # the root, not the parent
+    assert agents.conv_state(con, "c1") == "pending"                    # only the reply counts
+    assert agents.cancel(con, a["id"])["ok"]
