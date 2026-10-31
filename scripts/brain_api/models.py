@@ -487,6 +487,11 @@ class AgentConfig(Body):
     max_concurrent: Any = Field(None, description="Replies running at once, 1 to 8.")
 
 
+class FlagSet(Body):
+    name: Text = T("The flag, as listed by `GET /api/flags`.")
+    enabled: Any = Field(None, description="`true` turns it on, anything else off.")
+
+
 # -------------------------------------------------------------- contracts
 _sections = Annotated[Optional[dict[str, Any]], BeforeValidator(_dict_or_none)]
 
