@@ -615,12 +615,17 @@ def retry(con: sqlite3.Connection, msg_id: str, start: bool = True) -> dict[str,
     if r["status"] != "error":
         return {"ok": False, "error": f"reply {msg_id} is {r['status']}, not error"}
     conv = get_conv(con, r["conv_id"])
-    con.execute("UPDATE agent_msg SET status='queued', error='', events='[]', text='',"
+    # The failed attempt's trace stays: its events keep their place with a failure note after
+    # them, its sub-agents stay as they ended, and the new run appends after them.
+    events = json.loads(r["events"] or "[]")
+    events.append({"kind": "note", "name": "attempt failed", "error": True, "at": now_iso(),
+                   "output": (r["error"] or "")[:2000]})
+    con.execute("UPDATE agent_msg SET status='queued', error='', events=?, text='',"
                 " connector=?, model=?, full_tools=?, cost_usd=NULL, cost_estimated=0,"
                 " tokens_in=0, tokens_out=0, started_at='', finished_at='' WHERE id=?",
-                (conv["connector"], conv["model"], int(conv["full_tools"]), msg_id))
-    if flags.enabled("subagent_tracking"):
-        con.execute("DELETE FROM agent_msg WHERE role='subagent' AND reply_to=?", (msg_id,))
+                (json.dumps(events[-EVENTS_MAX:], ensure_ascii=False), conv["connector"],
+                 conv["model"], int(conv["full_tools"]), msg_id))
+    _close_subagents(con, msg_id, "the attempt failed", ("queued", "running"))
     con.commit()
     if start:
         dispatch()
@@ -898,7 +903,9 @@ class _Log:
 
     def __init__(self, con: sqlite3.Connection, msg_id: str):
         self.con, self.msg_id = con, msg_id
-        self.events: list[dict[str, Any]] = []
+        row = con.execute("SELECT events FROM agent_msg WHERE id=?", (msg_id,)).fetchone()
+        # A retried reply keeps the events of its failed attempts; this run appends to them.
+        self.events: list[dict[str, Any]] = json.loads(row["events"] or "[]") if row else []
         self.by_id: dict[str, dict[str, Any]] = {}
         self.usage: dict[str, dict[str, Any]] = {}   # per assistant message id
         self.model = ""
@@ -1007,10 +1014,12 @@ def _log_add(log: "_Log", ev: dict[str, Any], parent: str) -> None:
         log.add(ev)
 
 
-def _close_subagents(con: sqlite3.Connection, reply_id: str, why: str) -> None:
+def _close_subagents(con: sqlite3.Connection, reply_id: str, why: str,
+                     states: tuple[str, ...] = ("running",)) -> None:
     """A reply that ended: the subagents it left running end with it."""
     con.execute("UPDATE agent_msg SET status='error', error=?, finished_at=? WHERE role='subagent'"
-                " AND reply_to=? AND status='running'", (why, now_iso(), reply_id))
+                " AND reply_to=? AND status IN (%s)" % ",".join("?" * len(states)),
+                (why, now_iso(), reply_id, *states))
     con.commit()
 
 

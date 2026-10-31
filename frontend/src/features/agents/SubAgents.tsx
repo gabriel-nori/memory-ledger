@@ -3,6 +3,7 @@ import { Badge, Button, Icon, Markdown, Spinner, TextArea } from "@/components";
 import type { AgentMessage } from "@/api/types";
 import { formatCost } from "./export";
 import { EventLog } from "./EventLog";
+import { segments } from "./segments";
 
 /** The sub-agents of one message, as blocks under it, each with the ones it started. */
 export function SubAgentBlocks({ parentId, subs, writable, onCancel }: {
@@ -32,6 +33,8 @@ function SubAgentBlock({ sub, subs, writable, onCancel }: {
   const [open, setOpen] = useState(false);
   const running = sub.status === "queued" || sub.status === "running";
   const tone = sub.status === "error" ? "danger" : running ? "neutral" : "success";
+  // What it said stays in view as blocks; its tool calls and skills fold into logs between them.
+  const segs = segments(sub.events, !running && !!sub.text.trim(), sub.text);
   const state = running ? sub.status : sub.status === "error" ? "failed" : "done";
   return (
     <li className="ml-agents__sub">
@@ -57,7 +60,16 @@ function SubAgentBlock({ sub, subs, writable, onCancel }: {
       {open ? (
         <div className="ml-agents__sub-body">
           {sub.prompt ? <pre className="ml-agents__pre">{sub.prompt}</pre> : null}
-          {sub.events.length ? <EventLog events={sub.events} running={running} /> : null}
+          {segs.map((seg, i) =>
+            seg.said ? (
+              <div key={i} className={`ml-agents__bubble ml-agents__bubble--said${seg.thought ? " ml-agents__bubble--thinking" : ""}`}>
+                {seg.thought ? <div className="ml-agents__muted"><Icon name="thinking" /> thinking</div> : null}
+                <Markdown text={seg.said} />
+              </div>
+            ) : (
+              <EventLog key={i} events={seg.events} running={running && i === segs.length - 1} />
+            ),
+          )}
           {sub.status === "error" ? <p className="ml-agents__muted">{sub.error || "it failed"}</p> : null}
           {sub.text ? <Markdown text={sub.text} /> : null}
           <div className="ml-agents__meta">

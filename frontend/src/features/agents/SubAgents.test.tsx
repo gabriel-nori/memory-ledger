@@ -49,3 +49,16 @@ describe("SpawnForm", () => {
     expect(onSpawn).toHaveBeenCalledWith("check A");
   });
 });
+
+describe("SubAgentBlocks transcript", () => {
+  it("shows what the sub-agent said as a block and folds its tool calls", async () => {
+    const events = [
+      { kind: "text" as const, name: "text", output: "looking at the config" },
+      { kind: "tool" as const, name: "Read", tool: "Read", input: "a.py", output: "x" },
+    ];
+    render(<SubAgentBlocks parentId="r1" writable onCancel={() => {}} subs={[sub({ events })]} />);
+    await userEvent.click(screen.getByRole("button", { name: /Explore/ }));
+    expect(screen.getByText("looking at the config")).toBeInTheDocument();
+    expect(screen.getByText("Read").closest("details")).not.toHaveAttribute("open");
+  });
+});

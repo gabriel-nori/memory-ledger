@@ -53,7 +53,7 @@ The list shows what each conversation's latest reply is doing:
 | spinner | `pending` | queued or running. **Cancel**, on the reply, stops it |
 | `?` | `question` | the agent is waiting on you |
 | ✓ | `done` | answered |
-| ✕ | `error` | failed. **Retry** reruns it with the conversation's current connector |
+| ✕ | `error` | failed. **Retry** reruns it with the conversation's current connector; the failed attempt's log and sub-agents stay, marked failed, and the new run adds after them |
 
 The agent decides `question` itself. The system prompt, and a reminder at the end
 of the prompt, tell it to make the last line of its reply exactly `[[needs-answer]]`
