@@ -118,3 +118,26 @@ def test_spawn_makes_a_queued_row_under_the_message(con):
     assert (b["parent_msg_id"], b["reply_to"]) == (a["id"], "r1")      # the root, not the parent
     assert agents.conv_state(con, "c1") == "pending"                    # only the reply counts
     assert agents.cancel(con, a["id"])["ok"]
+
+
+LAUNCH = "Async agent launched successfully.\nagentId: abc123 (internal ID)"
+
+
+def test_a_background_launch_is_not_the_subagent_finishing(con, monkeypatch):
+    monkeypatch.setattr(flags, "enabled", lambda name: name == "subagent_tracking")
+    log = run(con, [assistant([task("t1", "step 1")]), result("t1", LAUNCH)])
+    assert log.background == {"abc123": "Explore"}
+    row = con.execute("SELECT status FROM agent_msg WHERE role='subagent'").fetchone()
+    assert row["status"] == "running"
+
+
+def test_a_later_message_naming_the_agent_clears_it(con):
+    notice = line(type="user", message={"content": "<task-notification>abc123 completed</task-notification>"})
+    log = run(con, [assistant([task("t1", "step 1")]), result("t1", LAUNCH), notice])
+    assert log.background == {}
+
+
+def test_a_reply_that_ends_with_background_work_open_is_an_error(con, monkeypatch):
+    monkeypatch.setattr(flags, "enabled", lambda name: False)
+    log = run(con, [assistant([task("t1", "step 1")]), result("t1", LAUNCH)])
+    assert sorted(set(log.background.values())) == ["Explore"]

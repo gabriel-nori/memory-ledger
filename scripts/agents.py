@@ -905,6 +905,8 @@ class _Log:
         self.extra: dict[str, Any] = {}
         self._flushed = 0.0
         self.subs: dict[str, dict[str, Any]] = {}   # Task call id -> its subagent (tracked)
+        # agentId -> label of a sub-agent launched in the background and not yet reported done
+        self.background: dict[str, str] = {}
         self.track = flags.enabled("subagent_tracking")
 
     def add(self, ev: dict[str, Any]) -> dict[str, Any]:
@@ -1012,6 +1014,9 @@ def _close_subagents(con: sqlite3.Connection, reply_id: str, why: str) -> None:
     con.commit()
 
 
+ASYNC_LAUNCH = re.compile(r"Async agent launched.*?agentId:\s*(\w+)", re.S)
+
+
 def handle_stream_line(log: _Log, line: str) -> dict[str, Any] | None:
     """Fold one stream-json line into the log. Returns the `result` object
     when the line is the final one."""
@@ -1043,14 +1048,22 @@ def handle_stream_line(log: _Log, line: str) -> dict[str, Any] | None:
                 _log_add(log, {"kind": "text", "name": "said", "output": _clip(b["text"]),
                                "parent": parent}, parent)
     elif t == "user":
+        blob, fresh = json.dumps(ev.get("message") or {}, ensure_ascii=False), set()
         for b in (ev.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "tool_result":
                 target = log.by_id.get(b.get("tool_use_id") or "")
                 if target is not None:
                     target["output"] = _clip(_result_text(b.get("content")))
                     target["error"] = bool(b.get("is_error"))
-                    if log.track:
+                    launched = ASYNC_LAUNCH.search(_result_text(b.get("content")))
+                    if launched and target["kind"] == "agent":
+                        # only the launch came back: the sub-agent is still running
+                        log.background[launched.group(1)] = target["name"]
+                        fresh.add(launched.group(1))
+                    elif log.track:
                         log.sub_end(target)
+        for agent_id in [a for a in log.background if a in blob and a not in fresh]:
+            log.background.pop(agent_id)              # a later message names it: it reported back
     elif t == "result":
         return ev
     return None
@@ -1120,12 +1133,13 @@ def _run_claude(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any
             raise AgentError(f"timed out after {c.get('timeout_s')}s")
         raise AgentError(err or f"claude exited {proc.returncode} without an answer")
     text = str(result.get("result") or "")
+    cut_off = sorted(set(log.background.values()))
     tokens = log.tokens()
     u = result.get("usage") or {}
     if u:   # the final tally; the streamed ones are partial
         tokens = (int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0)
                   + int(u.get("cache_creation_input_tokens") or 0), int(u.get("output_tokens") or 0))
-    out = {"text": text, "events": log.events, "tokens": tokens}
+    out = {"text": text, "events": log.events, "tokens": tokens, "cut_off": cut_off}
     if result.get("total_cost_usd") is not None:
         out["cost_usd"], out["cost_estimated"] = float(result["total_cost_usd"]), False
     else:
@@ -1346,8 +1360,14 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
     text, nxt = strip_next(res["text"])
     text, asked = strip_mark(text)
     status = "question" if asked else "done"
+    extra: dict[str, Any] = {}
+    if res.get("cut_off"):
+        # the process has exited, so a sub-agent left in the background died with it
+        status = "error"
+        extra["error"] = ("ended while background sub-agent(s) were still running, so their work "
+                          "was cut off: " + ", ".join(res["cut_off"]))
     _update(con, msg_id, status=status, text=text[:TEXT_MAX],
-            next_action=nxt, events=res["events"],
+            next_action=nxt, events=res["events"], **extra,
             cost_usd=round(res["cost_usd"], 6) if res["cost_usd"] is not None else None,
             cost_estimated=int(bool(res["cost_estimated"])), tokens_in=res["tokens"][0],
             tokens_out=res["tokens"][1], finished_at=now_iso())

@@ -564,6 +564,7 @@ function MessageItem({ m, subs, onSpawn, onCancelSub, writable, translateTo, onR
         </div>
       ) : m.status === "error" ? (
         <div className="ml-agents__bubble ml-agents__bubble--error">
+          {m.role === "agent" && m.text.trim() ? <Said text={m.text} target={translateTo} /> : null}
           <StatusMessage tone="error">{m.error || "the reply failed"}</StatusMessage>
           <Button size="sm" disabled={!writable} onClick={onRetry}>
             Retry
