@@ -321,6 +321,20 @@ describe("Prompt recall", () => {
   });
 });
 
+describe("Agents sync", () => {
+  it("is off by default and writes the switch through the settings route", async () => {
+    const { user } = renderApp(<SettingsSection />, { route: "/settings" });
+    const box = await screen.findByRole("checkbox", { name: /Sync Agents chats across machines/ });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    await waitFor(() =>
+      expect(writes.find((w) => w.path === "/api/settings")?.body).toMatchObject({
+        agents_sync: true,
+      }),
+    );
+  });
+});
+
 describe("Learned rules", () => {
   it("is off by default and writes the switch through the settings route", async () => {
     const { user } = renderApp(<SettingsSection />, { route: "/settings" });

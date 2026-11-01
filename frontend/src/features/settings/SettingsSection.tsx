@@ -27,6 +27,7 @@ import { VoiceCard } from "./VoiceCard";
 import { RealmsCard } from "./RealmsCard";
 import { LearnedRulesCard } from "./LearnedRulesCard";
 import { PromptRecallCard } from "./PromptRecallCard";
+import { AgentsSyncCard } from "./AgentsSyncCard";
 import type { RealmCount, Settings, Status, StoredSettings, Timezones } from "@/api/types";
 import "./SettingsSection.css";
 
@@ -85,6 +86,11 @@ export function SettingsSection() {
             onChanged={() => settings.reload()}
           />
           <PromptRecallCard
+            effective={settings.data.effective}
+            writable={settings.data.writable}
+            onChanged={() => settings.reload()}
+          />
+          <AgentsSyncCard
             effective={settings.data.effective}
             writable={settings.data.writable}
             onChanged={() => settings.reload()}
