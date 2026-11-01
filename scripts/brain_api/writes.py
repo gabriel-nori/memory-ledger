@@ -886,6 +886,13 @@ def agent_conversation(data: m.AgentConversation = body(m.AgentConversation)):
     return reply(agents.save_conversation(agents.db(), clip(data.id, 80), **changes))
 
 
+@router.post("/agent-spawn", tags=["agents"], summary="Start a sub-agent from a message",
+             description="A row of its own under the message, shown as a block below it. Needs "
+                         "the `subagent_tracking` flag.")
+def agent_spawn(data: m.AgentSpawn = body(m.AgentSpawn)):
+    return reply(agents.spawn(agents.db(), clip(data.parent_id, 80), clip(data.prompt, agents.TEXT_MAX)))
+
+
 @router.post("/agent-retry", tags=["agents"], summary="Run a failed reply again",
              description="With the conversation's current connector and model. "
                          "**Starts a model call.**")

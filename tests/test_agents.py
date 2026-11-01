@@ -354,6 +354,11 @@ class TestFailures:
         assert agents.retry(ctx.con, crashed.r4["reply_id"], start=False)["ok"]
         assert reply_of(ctx.con, crashed.r4["reply_id"])["status"] == "queued"
 
+    def test_retry_keeps_the_failed_trace_and_marks_it(self, ctx, crashed):
+        # (runs after the retry above: the reply is queued again with its old log in place)
+        ev = reply_of(ctx.con, crashed.r4["reply_id"])["events"]
+        assert ev and ev[-1]["name"] == "attempt failed" and ev[-1]["error"]
+
     def test_a_done_reply_cannot_be_retried(self, ctx, first):
         assert not agents.retry(ctx.con, first.r["reply_id"], start=False)["ok"]
 

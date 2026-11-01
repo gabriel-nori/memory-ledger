@@ -470,6 +470,11 @@ class AgentPanel(Body):
     cwd: Text = T("The folder claude starts in; empty is the memory-ledger repo.")
 
 
+class AgentSpawn(Body):
+    parent_id: Text = T("The reply or sub-agent to start it under.")
+    prompt: Text = T("What the sub-agent should do.")
+
+
 class AgentPlugin(Body):
     key: Text = T("The plugin, as `name@marketplace`.")
     enabled: Any = Field(None, description="`true` turns it on, anything else off.")

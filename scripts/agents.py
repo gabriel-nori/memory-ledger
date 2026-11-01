@@ -49,6 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _platform  # noqa: E402
 import _textio  # noqa: E402
 import documents  # noqa: E402
+import flags  # noqa: E402
 import graph  # noqa: E402
 import voice  # noqa: E402
 
@@ -165,7 +166,11 @@ CREATE TABLE IF NOT EXISTS agent_msg (
     node_id       TEXT NOT NULL DEFAULT '',     -- the exchange's `message` node
     owner_pid     INTEGER NOT NULL DEFAULT 0,   -- the server process running it
     beat_at       REAL NOT NULL DEFAULT 0,      -- epoch of the owner's last heartbeat
-    next_action   TEXT NOT NULL DEFAULT ''      -- the agent's suggested next message
+    next_action   TEXT NOT NULL DEFAULT '',     -- the agent's suggested next message
+    parent_msg_id TEXT NOT NULL DEFAULT '',     -- a subagent: the row that spawned it
+    tool_use_id   TEXT NOT NULL DEFAULT '',     -- a subagent: the Task call that started it
+    label         TEXT NOT NULL DEFAULT '',     -- a subagent: its type or description
+    prompt        TEXT NOT NULL DEFAULT ''      -- a subagent: what it was asked to do
 );
 CREATE INDEX IF NOT EXISTS agent_msg_conv ON agent_msg(conv_id, at);
 CREATE INDEX IF NOT EXISTS agent_msg_status ON agent_msg(status);
@@ -326,7 +331,11 @@ def db() -> sqlite3.Connection:
     have = {r["name"] for r in con.execute("PRAGMA table_info(agent_msg)")}
     for col, ddl in (("owner_pid", "INTEGER NOT NULL DEFAULT 0"),
                      ("beat_at", "REAL NOT NULL DEFAULT 0"),
-                     ("next_action", "TEXT NOT NULL DEFAULT ''")):
+                     ("next_action", "TEXT NOT NULL DEFAULT ''"),
+                     ("parent_msg_id", "TEXT NOT NULL DEFAULT ''"),
+                     ("tool_use_id", "TEXT NOT NULL DEFAULT ''"),
+                     ("label", "TEXT NOT NULL DEFAULT ''"),
+                     ("prompt", "TEXT NOT NULL DEFAULT ''")):
         if col not in have:
             con.execute(f"ALTER TABLE agent_msg ADD COLUMN {col} {ddl}")
     have = {r["name"] for r in con.execute("PRAGMA table_info(agent_conv)")}
@@ -378,9 +387,10 @@ def conversations(con: sqlite3.Connection) -> list[dict[str, Any]]:
     for r in con.execute("SELECT * FROM agent_conv ORDER BY updated_at DESC"):
         c = _conv_row(r)
         last = con.execute("SELECT role, text, at FROM agent_msg WHERE conv_id=?"
-                           " AND text<>'' ORDER BY at DESC LIMIT 1", (c["id"],)).fetchone()
+                           " AND role<>'subagent' AND text<>'' ORDER BY at DESC LIMIT 1",
+                           (c["id"],)).fetchone()
         totals = con.execute("SELECT COUNT(*) n, SUM(cost_usd) cost FROM agent_msg"
-                             " WHERE conv_id=?", (c["id"],)).fetchone()
+                             " WHERE conv_id=? AND role<>'subagent'", (c["id"],)).fetchone()
         c["state"] = conv_state(con, c["id"])
         c["last"] = dict(last) if last else None
         c["messages"] = totals["n"]
@@ -393,15 +403,20 @@ def thread(con: sqlite3.Connection, cid: str) -> dict[str, Any] | None:
     c = get_conv(con, cid)
     if not c:
         return None
+    # a subagent's row is not a message of the thread (its cost is in its reply's)
     msgs = [_msg_row(r) for r in con.execute(
-        "SELECT * FROM agent_msg WHERE conv_id=? ORDER BY at", (cid,))]
+        "SELECT * FROM agent_msg WHERE conv_id=? AND role<>'subagent' ORDER BY at", (cid,))]
     c["state"] = conv_state(con, cid)
     c["cost_usd"] = round(sum(m["cost_usd"] or 0 for m in msgs), 6)
     c["cost_estimated"] = any(m["cost_estimated"] for m in msgs)
     c["tokens_in"] = sum(m["tokens_in"] for m in msgs)
     c["tokens_out"] = sum(m["tokens_out"] for m in msgs)
     c["turn_end"] = turn_end(msgs)
-    return {"ok": True, "conversation": c, "messages": msgs}
+    out = {"ok": True, "conversation": c, "messages": msgs}
+    if flags.enabled("subagent_tracking"):
+        out["subagents"] = [_msg_row(r) for r in con.execute(
+            "SELECT * FROM agent_msg WHERE conv_id=? AND role='subagent' ORDER BY at", (cid,))]
+    return out
 
 
 def turn_end(msgs: list[dict[str, Any]]) -> dict[str, str] | None:
@@ -424,7 +439,7 @@ def thread_text(con: sqlite3.Connection, cid: str, limit: int = 0) -> str:
     if not c:
         return f"no conversation {cid}"
     rows = con.execute("SELECT role, text, model, status, at FROM agent_msg WHERE conv_id=?"
-                       " ORDER BY at", (cid,)).fetchall()
+                       " AND role<>'subagent' ORDER BY at", (cid,)).fetchall()
     if limit > 0:
         rows = rows[-limit:]
     out = [f"Conversation {cid}: {c['title'] or 'Untitled'} ({len(rows)} messages)"]
@@ -600,14 +615,59 @@ def retry(con: sqlite3.Connection, msg_id: str, start: bool = True) -> dict[str,
     if r["status"] != "error":
         return {"ok": False, "error": f"reply {msg_id} is {r['status']}, not error"}
     conv = get_conv(con, r["conv_id"])
-    con.execute("UPDATE agent_msg SET status='queued', error='', events='[]', text='',"
+    # The failed attempt's trace stays: its events keep their place with a failure note after
+    # them, its sub-agents stay as they ended, and the new run appends after them.
+    events = json.loads(r["events"] or "[]")
+    events.append({"kind": "note", "name": "attempt failed", "error": True, "at": now_iso(),
+                   "output": (r["error"] or "")[:2000]})
+    con.execute("UPDATE agent_msg SET status='queued', error='', events=?, text='',"
                 " connector=?, model=?, full_tools=?, cost_usd=NULL, cost_estimated=0,"
                 " tokens_in=0, tokens_out=0, started_at='', finished_at='' WHERE id=?",
-                (conv["connector"], conv["model"], int(conv["full_tools"]), msg_id))
+                (json.dumps(events[-EVENTS_MAX:], ensure_ascii=False), conv["connector"],
+                 conv["model"], int(conv["full_tools"]), msg_id))
+    _close_subagents(con, msg_id, "the attempt failed", ("queued", "running"))
     con.commit()
     if start:
         dispatch()
     return {"ok": True, "reply_id": msg_id}
+
+
+def spawn(con: sqlite3.Connection, parent_id: str, prompt: str, start: bool = True) -> dict[str, Any]:
+    """Start a sub-agent by hand from a message: a row of its own under `parent_id` (a reply, or
+    a subagent), run like a reply and shown as a block under it. Needs `subagent_tracking`."""
+    if not flags.enabled("subagent_tracking"):
+        return {"ok": False, "error": "turn on the subagent_tracking flag (Settings > Flags)"}
+    if not prompt.strip():
+        return {"ok": False, "error": "say what the sub-agent should do"}
+    p = con.execute("SELECT * FROM agent_msg WHERE id=? AND role IN ('agent','subagent')",
+                    (parent_id,)).fetchone()
+    if not p:
+        return {"ok": False, "error": f"no reply {parent_id}"}
+    conv = get_conv(con, p["conv_id"])
+    root = p["id"] if p["role"] == "agent" else p["reply_to"]
+    sid = _new_id("asub")
+    con.execute(
+        "INSERT INTO agent_msg(id,conv_id,role,at,status,reply_to,connector,model,full_tools,"
+        "parent_msg_id,label,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        (sid, p["conv_id"], "subagent", now_iso(), "queued", root, conv["connector"],
+         conv["model"], int(conv["full_tools"]), parent_id, "started by hand",
+         prompt.strip()[:TEXT_MAX]))
+    con.commit()
+    if start:
+        dispatch()
+    return {"ok": True, "subagent_id": sid}
+
+
+def _subagent_turn(con: sqlite3.Connection, row: dict[str, Any], c: dict[str, Any]) -> dict[str, Any]:
+    parent = con.execute("SELECT text FROM agent_msg WHERE id=?", (row["parent_msg_id"],)).fetchone()
+    system = (system_prompt(get_conv(con, row["conv_id"]), 0, c["kind"])
+              + "\nYou are a sub-agent the owner started from one of your own messages. Do only "
+                "the task below and answer with its result.")
+    prompt = ""
+    if parent and (parent["text"] or "").strip():
+        prompt = "The message you were started from:\n" + parent["text"] + "\n\n"
+    return {"system": system, "prompt": prompt + "Your task:\n" + row["prompt"], "context": [],
+            "question": row["prompt"]}
 
 
 def cancel(con: sqlite3.Connection, msg_id: str) -> dict[str, Any]:
@@ -615,7 +675,8 @@ def cancel(con: sqlite3.Connection, msg_id: str) -> dict[str, Any]:
     the thread shows it and Retry runs it again; a running Claude session is
     killed, a running Ollama chat stops at its next round and its answer is
     dropped."""
-    r = con.execute("SELECT * FROM agent_msg WHERE id=? AND role='agent'", (msg_id,)).fetchone()
+    r = con.execute("SELECT * FROM agent_msg WHERE id=? AND role IN ('agent','subagent')",
+                    (msg_id,)).fetchone()
     if not r:
         return {"ok": False, "error": f"no reply {msg_id}"}
     if r["status"] not in PENDING:
@@ -627,6 +688,8 @@ def cancel(con: sqlite3.Connection, msg_id: str) -> dict[str, Any]:
     if proc is not None and proc.poll() is None:
         _platform.kill_tree(proc)
     _update(con, msg_id, status="error", error=CANCELLED, finished_at=now_iso())
+    if flags.enabled("subagent_tracking"):
+        _close_subagents(con, msg_id, CANCELLED)
     return {"ok": True, "reply_id": msg_id, "was": r["status"]}
 
 
@@ -840,12 +903,19 @@ class _Log:
 
     def __init__(self, con: sqlite3.Connection, msg_id: str):
         self.con, self.msg_id = con, msg_id
-        self.events: list[dict[str, Any]] = []
+        row = con.execute("SELECT events FROM agent_msg WHERE id=?", (msg_id,)).fetchone()
+        # A retried reply keeps the events of its failed attempts; this run appends to them.
+        self.events: list[dict[str, Any]] = json.loads(row["events"] or "[]") if row else []
         self.by_id: dict[str, dict[str, Any]] = {}
         self.usage: dict[str, dict[str, Any]] = {}   # per assistant message id
         self.model = ""
         self.extra: dict[str, Any] = {}
         self._flushed = 0.0
+        self.subs: dict[str, dict[str, Any]] = {}   # Task call id -> its subagent (tracked)
+        # agentId -> label of a sub-agent launched in the background and not yet reported done
+        self.background: dict[str, str] = {}
+        self.background_call: dict[str, str] = {}   # agentId -> id of the Task call that launched it
+        self.track = flags.enabled("subagent_tracking")
 
     def add(self, ev: dict[str, Any]) -> dict[str, Any]:
         ev.setdefault("at", now_iso())
@@ -862,10 +932,47 @@ class _Log:
     def cost(self) -> float:
         return sum(_usage_cost(self.model, u) for u in self.usage.values())
 
+    def sub_start(self, ev: dict[str, Any], inp: dict[str, Any], parent: str) -> None:
+        """A Task call becomes a row of its own, under the row that made the call."""
+        reply = self.con.execute("SELECT conv_id, connector FROM agent_msg WHERE id=?",
+                                 (self.msg_id,)).fetchone()
+        up = self.subs.get(parent)
+        sub = {"id": _new_id("asub"), "tool_use_id": ev["id"], "events": [], "usage": {},
+               "dirty": True}
+        self.subs[ev["id"]] = sub
+        self.con.execute(
+            "INSERT INTO agent_msg(id,conv_id,role,at,status,reply_to,connector,model,started_at,"
+            "parent_msg_id,tool_use_id,label,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (sub["id"], reply["conv_id"] if reply else "", "subagent", now_iso(), "running",
+             self.msg_id, reply["connector"] if reply else "", self.model, now_iso(),
+             up["id"] if up else self.msg_id, ev["id"], ev["name"][:200],
+             str(inp.get("prompt") or inp.get("description") or "")[:TEXT_MAX]))
+        self.con.commit()
+
+    def sub_end(self, ev: dict[str, Any]) -> None:
+        sub = self.subs.get(ev.get("id") or "")
+        if sub is None:
+            return
+        _update(self.con, sub["id"], status="error" if ev.get("error") else "done",
+                text=(ev.get("output") or "")[:TEXT_MAX], events=sub["events"],
+                finished_at=now_iso(), **self._sub_totals(sub))
+        sub["dirty"] = False
+
+    def _sub_totals(self, sub: dict[str, Any]) -> dict[str, Any]:
+        us = sub["usage"].values()
+        tin = sum(u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                  + u.get("cache_creation_input_tokens", 0) for u in us)
+        return {"tokens_in": tin, "tokens_out": sum(u.get("output_tokens", 0) for u in us),
+                "cost_usd": round(sum(_usage_cost(self.model, u) for u in us), 6),
+                "cost_estimated": 1}
+
     def flush(self, force: bool = False) -> None:
         if not force and time.monotonic() - self._flushed < 0.5:
             return
         self._flushed = time.monotonic()
+        for sub in self.subs.values():
+            if sub["dirty"]:
+                _update(self.con, sub["id"], events=sub["events"], **self._sub_totals(sub))
         tin, tout = self.tokens()
         cols: dict[str, Any] = {"events": self.events, "tokens_in": tin, "tokens_out": tout,
                                 **self.extra}
@@ -895,6 +1002,45 @@ def _result_text(content: Any) -> str:
     return str(content or "")
 
 
+def _report_text(message: dict[str, Any]) -> str:
+    """The text of a user-side message: what a background sub-agent reported back."""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return str(content or "")
+    parts = []
+    for b in content:
+        if isinstance(b, dict):
+            parts.append(_result_text(b.get("content")) if b.get("type") == "tool_result"
+                         else str(b.get("text") or ""))
+    return "\n".join(p for p in parts if p)
+
+
+def _log_add(log: "_Log", ev: dict[str, Any], parent: str) -> None:
+    """Tracking off: every event goes in the reply's log. On: what a tracked subagent did
+    goes in that subagent's own log, and the reply's keeps the call."""
+    if flags.enabled("subagent_tracking") and parent in log.subs:
+        ev.setdefault("at", now_iso())
+        log.subs[parent]["events"].append(ev)
+        log.subs[parent]["dirty"] = True
+        if ev.get("id"):
+            log.by_id[ev["id"]] = ev
+    else:
+        log.add(ev)
+
+
+def _close_subagents(con: sqlite3.Connection, reply_id: str, why: str,
+                     states: tuple[str, ...] = ("running",)) -> None:
+    """A reply that ended: the subagents its Task calls left running end with it. A sub-agent
+    started by hand (no `tool_use_id`) is a run of its own and is not ended by its root."""
+    con.execute("UPDATE agent_msg SET status='error', error=?, finished_at=? WHERE role='subagent'"
+                " AND tool_use_id<>'' AND reply_to=? AND status IN (%s)" % ",".join("?" * len(states)),
+                (why, now_iso(), reply_id, *states))
+    con.commit()
+
+
+ASYNC_LAUNCH = re.compile(r"Async agent launched.*?agentId:\s*(\w+)", re.S)
+
+
 def handle_stream_line(log: _Log, line: str) -> dict[str, Any] | None:
     """Fold one stream-json line into the log. Returns the `result` object
     when the line is the final one."""
@@ -910,23 +1056,42 @@ def handle_stream_line(log: _Log, line: str) -> dict[str, Any] | None:
         msg = ev.get("message") or {}
         if msg.get("id") and msg.get("usage"):
             log.usage[msg["id"]] = msg["usage"]
+            if log.track and parent in log.subs:
+                log.subs[parent]["usage"][msg["id"]] = msg["usage"]
         for b in msg.get("content") or []:
             bt = b.get("type")
             if bt == "tool_use":
-                log.add(_tool_event(b, parent))
+                new = _tool_event(b, parent)
+                if log.track and new["kind"] == "agent":
+                    log.sub_start(new, b.get("input") or {}, parent)
+                _log_add(log, new, parent)
             elif bt == "thinking" and (b.get("thinking") or "").strip():
-                log.add({"kind": "thinking", "name": "thinking", "output": _clip(b["thinking"]),
-                         "parent": parent})
+                _log_add(log, {"kind": "thinking", "name": "thinking",
+                               "output": _clip(b["thinking"]), "parent": parent}, parent)
             elif bt == "text" and (b.get("text") or "").strip():
-                log.add({"kind": "text", "name": "said", "output": _clip(b["text"]),
-                         "parent": parent})
+                _log_add(log, {"kind": "text", "name": "said", "output": _clip(b["text"]),
+                               "parent": parent}, parent)
     elif t == "user":
+        blob, fresh = json.dumps(ev.get("message") or {}, ensure_ascii=False), set()
         for b in (ev.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "tool_result":
                 target = log.by_id.get(b.get("tool_use_id") or "")
                 if target is not None:
                     target["output"] = _clip(_result_text(b.get("content")))
                     target["error"] = bool(b.get("is_error"))
+                    launched = ASYNC_LAUNCH.search(_result_text(b.get("content")))
+                    if launched and target["kind"] == "agent":
+                        # only the launch came back: the sub-agent is still running
+                        log.background[launched.group(1)] = target["name"]
+                        log.background_call[launched.group(1)] = target["id"]
+                        fresh.add(launched.group(1))
+                    elif log.track:
+                        log.sub_end(target)
+        for agent_id in [a for a in log.background if a in blob and a not in fresh]:
+            log.background.pop(agent_id)              # a later message names it: it reported back
+            call = log.background_call.pop(agent_id, "")
+            if log.track and call:
+                log.sub_end({"id": call, "output": _report_text(ev.get("message") or {})})
     elif t == "result":
         return ev
     return None
@@ -988,18 +1153,21 @@ def _run_claude(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any
         with _lock:
             _procs.pop(reply["id"], None)
     log.flush(force=True)
+    if flags.enabled("subagent_tracking"):
+        _close_subagents(con, reply["id"], "interrupted: the reply ended first")
     if result is None:
         err = (proc.stderr.read() if proc.stderr else "").strip()[-600:]   # type: ignore[union-attr]
         if timed_out:
             raise AgentError(f"timed out after {c.get('timeout_s')}s")
         raise AgentError(err or f"claude exited {proc.returncode} without an answer")
     text = str(result.get("result") or "")
+    cut_off = sorted(set(log.background.values()))
     tokens = log.tokens()
     u = result.get("usage") or {}
     if u:   # the final tally; the streamed ones are partial
         tokens = (int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0)
                   + int(u.get("cache_creation_input_tokens") or 0), int(u.get("output_tokens") or 0))
-    out = {"text": text, "events": log.events, "tokens": tokens}
+    out = {"text": text, "events": log.events, "tokens": tokens, "cut_off": cut_off}
     if result.get("total_cost_usd") is not None:
         out["cost_usd"], out["cost_estimated"] = float(result["total_cost_usd"]), False
     else:
@@ -1204,8 +1372,11 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
             raise AgentError(f"no connector {reply['connector']!r}")
         if not c.get("enabled"):
             raise AgentError(f"the {c['name']} connector is turned off")
-        turn = build_turn(con, reply)
-        _update(con, msg_id, context=turn["context"])
+        if reply["role"] == "subagent":        # started by hand, see spawn()
+            turn = _subagent_turn(con, reply, c)
+        else:
+            turn = build_turn(con, reply)
+            _update(con, msg_id, context=turn["context"])
         res = RUNNERS[c["kind"]](con, reply, c, turn)
     except Exception as e:
         if _is_cancelled(msg_id):              # cancel already wrote the reply's end
@@ -1217,13 +1388,21 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
     text, nxt = strip_next(res["text"])
     text, asked = strip_mark(text)
     status = "question" if asked else "done"
+    extra: dict[str, Any] = {}
+    if res.get("cut_off"):
+        # the process has exited, so a sub-agent left in the background died with it
+        status = "error"
+        extra["error"] = ("ended while background sub-agent(s) were still running, so their work "
+                          "was cut off: " + ", ".join(res["cut_off"]))
     _update(con, msg_id, status=status, text=text[:TEXT_MAX],
-            next_action=nxt, events=res["events"],
+            next_action=nxt, events=res["events"], **extra,
             cost_usd=round(res["cost_usd"], 6) if res["cost_usd"] is not None else None,
             cost_estimated=int(bool(res["cost_estimated"])), tokens_in=res["tokens"][0],
             tokens_out=res["tokens"][1], finished_at=now_iso())
     con.execute("UPDATE agent_conv SET updated_at=? WHERE id=?", (now_iso(), reply["conv_id"]))
     con.commit()
+    if reply["role"] == "subagent":
+        return {"ok": True, "status": status}
     try:
         remember(con, msg_id, turn["question"], text)
     except Exception:
@@ -1325,7 +1504,7 @@ def recover() -> int:
     con = db()
     n = 0
     for r in con.execute("SELECT id, owner_pid, beat_at FROM agent_msg"
-                         " WHERE status='running'").fetchall():
+                         " WHERE status='running' AND (role='agent' OR tool_use_id='')").fetchall():
         if time.time() - (r["beat_at"] or 0) < BEAT_STALE_S:
             continue
         if r["owner_pid"] and r["owner_pid"] != os.getpid() and _alive(r["owner_pid"]):
@@ -1333,6 +1512,8 @@ def recover() -> int:
         n += con.execute("UPDATE agent_msg SET status='error', error='interrupted: the server "
                          "stopped while this ran', finished_at=? WHERE id=? AND status='running'",
                          (now_iso(), r["id"])).rowcount
+        if flags.enabled("subagent_tracking"):
+            _close_subagents(con, r["id"], "interrupted: the server stopped while this ran")
     con.commit()
     dispatch()
     return n
