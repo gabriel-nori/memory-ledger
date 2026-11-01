@@ -921,6 +921,8 @@ export const b2bThreadFixture: import("@/api/types").B2BThread = {
       request_id: "r9",
     },
   ],
+  has_more: false,
+  next_before: "",
 };
 
 // ------------------------------------------------------------------ agents

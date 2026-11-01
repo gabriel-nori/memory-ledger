@@ -33,6 +33,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 CHALLENGE_INFO = b"b2b/v2/challenge"
 MESSAGE_INFO = b"b2b/v2/message"
+FILE_INFO = b"b2b/v2/file/"
 
 
 class BadBox(Exception):
@@ -108,15 +109,18 @@ def _message_key(own: X25519PrivateKey, eph_shared: bytes, other: X25519PublicKe
                 ).derive(eph_shared + static)
 
 
-def seal(private_key: str, to: str, payload: dict[str, Any]) -> dict[str, Any]:
+def seal(private_key: str, to: str, payload: dict[str, Any],
+         msg_id: str = "") -> dict[str, Any]:
     """`payload` (JSON) sealed from this identity to the user id `to`. Returns
-    the envelope a relay carries: `{v, id, from, eph, nonce, ct}`."""
+    the envelope a relay carries: `{v, id, from, eph, nonce, ct}`. `msg_id`
+    (32 hex) is the message's id when the caller chose it ahead, as a staged
+    message does; else a new one."""
     me, them = _private(private_key), _public(to)
     sender = me.public_key().public_bytes_raw()
     recipient = them.public_bytes_raw()
     eph_priv = X25519PrivateKey.generate()
     eph = eph_priv.public_key().public_bytes_raw()
-    msg_id = uuid.uuid4().hex
+    msg_id = msg_id or uuid.uuid4().hex
     key = _message_key(me, eph_priv.exchange(them), them, eph, sender, recipient, msg_id)
     nonce = os.urandom(12)
     ct = AESGCM(key).encrypt(nonce, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -142,3 +146,18 @@ def open_envelope(private_key: str, env: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(out, dict):
         raise BadBox("the message is not an object")
     return out
+
+
+def seal_file(key: bytes, nonce: bytes, file_id: str, data: bytes) -> bytes:
+    """A file's bytes sealed with its own random key, which travels inside the
+    sealed message, never next to the file. The same key, nonce and bytes give
+    the same blob, so a staged upload can be redone."""
+    return AESGCM(key).encrypt(nonce, data, FILE_INFO + file_id.encode())
+
+
+def open_file(key: bytes, nonce: bytes, file_id: str, blob: bytes) -> bytes:
+    """The inverse of `seal_file`. Raises `BadBox`."""
+    try:
+        return AESGCM(key).decrypt(nonce, blob, FILE_INFO + file_id.encode())
+    except (InvalidTag, ValueError) as e:
+        raise BadBox(f"the file does not open with its key: {e}") from None
