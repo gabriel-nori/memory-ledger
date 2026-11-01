@@ -118,6 +118,7 @@ describe("Agents", () => {
   it("switches the model mid-conversation", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents?c=c1" });
     await screen.findByRole("listitem", { name: "agent reply" });
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await user.click(screen.getByRole("button", { name: "agent and model" }));
     await user.hover(screen.getByRole("menuitem", { name: /Ollama/ }));
     const models = screen.getByRole("menu", { name: "Ollama models" });
@@ -131,6 +132,7 @@ describe("Agents", () => {
   it("opens an agent's models to the side, the current one ticked", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents?c=c1" });
     await screen.findByRole("listitem", { name: "agent reply" });
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await user.click(screen.getByRole("button", { name: "agent and model" }));
     const models = screen.getByRole("menu", { name: "Claude models" });
     expect(within(models).getByRole("menuitemradio", { name: "claude-sonnet-5-5" })).toHaveAttribute("aria-checked", "true");
@@ -148,6 +150,7 @@ describe("Agents", () => {
   it("ticks Read-only when the conversation is read-only, and unticking it turns tools on", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents?c=c1" });
     await screen.findByRole("listitem", { name: "agent reply" });
+    await user.click(screen.getByRole("button", { name: "Options" }));
     const box = screen.getByRole("checkbox", { name: "Read-only" });
     expect(box).toBeChecked();
     expect(box).toBeEnabled();
@@ -158,6 +161,7 @@ describe("Agents", () => {
   it("attaches files with the clip, the drop and the paste, and sends them with the message", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents" });
     const box = await screen.findByRole("textbox", { name: "message to the agent" });
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "agent and model" })).toHaveTextContent("claude-sonnet-5-5"));
     const png = new File(["x"], "shot.png", { type: "image/png" });
     await user.upload(screen.getByLabelText("choose files"), png);
@@ -187,14 +191,15 @@ describe("Agents", () => {
     expect(screen.queryByRole("list", { name: "attached files" })).not.toBeInTheDocument();
   });
 
-  it("starts a conversation read-only with the default agent", async () => {
+  it("starts a conversation with the default agent, tools on", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents" });
     await screen.findByText("Start a conversation");
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "agent and model" })).toHaveTextContent("claude-sonnet-5-5"));
     await user.type(screen.getByLabelText("message to the agent"), "Hello{Enter}");
     await waitFor(() =>
       expect(sent("/api/agent-send")).toEqual([
-        { text: "Hello", connector: "claude", model: "claude-sonnet-5-5", full_tools: false, context_turns: 1 },
+        { text: "Hello", connector: "claude", model: "claude-sonnet-5-5", full_tools: true, context_turns: 1 },
       ]),
     );
   });
@@ -218,7 +223,9 @@ describe("agent export", () => {
   it("opens a fuzzy popup on a leading /, greys writers out while read-only, and inserts the pick", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents" });
     const box = await screen.findByRole("textbox", { name: "message to the agent" });
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await screen.findByRole("button", { name: /Plugins/ });
+    await user.click(screen.getByRole("checkbox", { name: "Read-only" }));
     await user.type(box, "/mlr");
     const list = await screen.findByRole("listbox", { name: "slash commands" });
     // letters in order: both memory-ledger commands match, the fuzzy tie sorts by name
@@ -245,6 +252,7 @@ describe("agent export", () => {
 
   it("turns a plugin on from the Plugins menu", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents" });
+    await user.click(await screen.findByRole("button", { name: "Options" }));
     await user.click(await screen.findByRole("button", { name: /Plugins/ }));
     await user.click(screen.getByRole("checkbox", { name: /chrome-devtools-mcp/ }));
     await waitFor(() =>
@@ -254,25 +262,28 @@ describe("agent export", () => {
 });
 
 describe("Agents voice", () => {
-  it("offers dictation, conversation mode, speech and narration above the composer", async () => {
+  it("puts dictation in the box, conversation mode where Send is, and speech in the options", async () => {
     // jsdom has no microphone; a browser that does is what the button needs.
     Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: vi.fn() }, configurable: true });
     vi.stubGlobal("AudioWorkletNode", class {});
-    renderApp(<AgentsSection />, { route: "/agents?c=c1" });
-    const bar = await screen.findByRole("group", { name: "voice controls" });
-    await waitFor(() => expect(within(bar).getByRole("button", { name: "Dictate" })).toBeEnabled());
-    expect(within(bar).getByRole("checkbox", { name: "Conversation mode" })).toBeEnabled();
-    expect(within(bar).getByRole("checkbox", { name: "Speak" })).not.toBeChecked();
-    expect(within(bar).queryByRole("button", { name: "Stop speaking" })).not.toBeInTheDocument();
-    expect(within(bar).queryByRole("button", { name: "Stop dictation" })).not.toBeInTheDocument();
+    const { user } = renderApp(<AgentsSection />, { route: "/agents?c=c1" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Dictate" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: "Conversation mode" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Speak" })).not.toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "message to the agent" }), "hi");
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Conversation mode" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Options" }));
+    expect(screen.getByRole("checkbox", { name: "Speak" })).not.toBeChecked();
   });
 
   it("saves speech and narration as this chat's own", async () => {
     const { user } = renderApp(<AgentsSection />, { route: "/agents?c=c1" });
-    const bar = await screen.findByRole("group", { name: "voice controls" });
-    await user.click(within(bar).getByRole("checkbox", { name: "Speak" }));
+    await user.click(await screen.findByRole("button", { name: "Options" }));
+    await user.click(screen.getByRole("checkbox", { name: "Speak" }));
     await waitFor(() => expect(sent("/api/agent-conversation")).toContainEqual(expect.objectContaining({ id: "c1", tts: "on" })));
-    await user.selectOptions(within(bar).getByRole("combobox", { name: "narration" }), "verbose");
+    await user.selectOptions(screen.getByRole("combobox", { name: "narration" }), "verbose");
     await waitFor(() => expect(sent("/api/agent-conversation")).toContainEqual(expect.objectContaining({ id: "c1", verbosity: "verbose" })));
   });
 
@@ -283,9 +294,9 @@ describe("Agents voice", () => {
       ),
     );
     renderApp(<AgentsSection />, { route: "/agents?c=c1" });
-    const bar = await screen.findByRole("group", { name: "voice controls" });
-    await waitFor(() => expect(within(bar).getByRole("button", { name: "Dictate" })).toBeDisabled());
-    expect(within(bar).getByRole("button", { name: "Dictate" })).toHaveAttribute("title", "no Python with faster-whisper found");
+    const dictate = await screen.findByRole("button", { name: "Dictate" });
+    await waitFor(() => expect(dictate).toBeDisabled());
+    expect(dictate).toHaveAttribute("title", "no Python with faster-whisper found");
   });
 
   it("shows each block translated, with the original a click away, when conversion is on", async () => {

@@ -149,7 +149,9 @@
 }
 .ml-agents__hint { color: var(--muted); font-size: 11.5px; margin: 0; }
 .ml-agents__compose-row { position: relative; display: flex; gap: var(--space-2); align-items: flex-end; }
-.ml-agents__compose-row .ml-input--area { min-height: 44px; resize: none; }
+.ml-agents__field { position: relative; flex: 1; min-width: 0; display: flex; }
+.ml-agents__field .ml-input--area { min-height: 44px; resize: none; padding-right: 44px; }
+.ml-agents__dictate { position: absolute; right: var(--space-2); bottom: 6px; display: flex; gap: var(--space-1); }
 
 /* The slash-command popup: above the message box, over the thread. */
 .ml-slash {
@@ -207,3 +209,4 @@
 .ml-agents__sub-toggle:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 .ml-agents__sub-body { margin: 4px 0 4px var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
 .ml-agents__spawn { display: flex; align-items: flex-start; gap: var(--space-2); flex: 1 1 100%; }
+.ml-agents__field:has(.ml-agents__dictate .ml-btn--primary) .ml-input--area { padding-right: 170px; }
