@@ -71,6 +71,13 @@ def _pid() -> int:
         return 0
 
 
+def _is_server(pid: int) -> bool:
+    """Whether `pid` is our serve.py. When the command line cannot be read, the server
+    answering its health check is the proof."""
+    cmd = _platform.pid_command(pid)
+    return "serve.py" in cmd if cmd is not None else healthy()
+
+
 def _python() -> str:
     """The interpreter for serve.py: pythonw would hide the console but cannot
     print, so the server always runs under python with its output in the log."""
@@ -115,6 +122,8 @@ def start(open_browser: bool = True) -> int:
 
 def stop() -> int:
     pid = _pid()
+    if pid and _platform.pid_alive(pid) and not _is_server(pid):
+        pid = 0                                         # a reused pid: not ours to signal
     if not pid or not _platform.pid_alive(pid):
         print(f"{NAME} is not running")
         pid_file().unlink(missing_ok=True)

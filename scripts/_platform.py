@@ -280,3 +280,22 @@ def pid_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def pid_command(pid: int) -> str | None:
+    """The command line of a running process, or None when it cannot be read."""
+    try:
+        if WINDOWS:
+            ps = powershell()
+            if not ps:
+                return None
+            cmd = [ps, "-NoProfile", "-Command",
+                   f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"]
+        else:
+            cmd = ["ps", "-p", str(int(pid)), "-o", "command="]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
