@@ -46,3 +46,25 @@ if (!globalThis.requestAnimationFrame) {
     setTimeout(() => cb(0), 0) as unknown as number) as typeof requestAnimationFrame;
   globalThis.cancelAnimationFrame = ((id: number) => clearTimeout(id)) as typeof cancelAnimationFrame;
 }
+
+// jsdom ships its own AbortController, and Node's fetch (undici, which msw
+// intercepts) rejects a signal that is not Node's own AbortSignal: "Expected
+// signal to be an instance of AbortSignal". Newer Node versions are strict
+// about it, so every request a component made with its abort signal failed in
+// the suite. Take the signal off before the request reaches msw and honour it
+// here instead: the call rejects with an AbortError once the signal fires. It
+// wraps fetch AFTER server.listen patched it, so it is the outermost layer.
+beforeAll(() => {
+  const patched = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const signal = init?.signal;
+    if (!signal) return patched(input, init);
+    const { signal: _taken, ...rest } = init;
+    const abortError = () => new DOMException("The operation was aborted.", "AbortError");
+    if (signal.aborted) return Promise.reject(abortError());
+    return new Promise<Response>((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(abortError()), { once: true });
+      patched(input, rest).then(resolve, reject);
+    });
+  }) as typeof fetch;
+});
