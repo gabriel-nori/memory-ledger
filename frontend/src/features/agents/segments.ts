@@ -9,12 +9,25 @@ export type Segment = { said: string; thought?: boolean; events: AgentEvent[] };
  */
 const MARKERS = /[ \t`]*\[\[(?:next:[\s\S]*?|needs-answer)\]\][ \t`]*/g;
 const bare = (text: string) => text.replace(MARKERS, "").trim();
+/** The server clips a logged text at 2000 chars and appends this note. */
+const CLIPPED = /… \(\d+ more chars\)$/;
+/** A marker the clip cut before its closing brackets. */
+const OPEN_MARKER = /[ \t`]*\[\[(?:next:[\s\S]*|needs-answer)$/;
+
+/** Whether a logged text is the reply itself, whole or clipped. */
+function isReply(output: string, reply: string): boolean {
+  const want = reply.trim();
+  if (bare(output) === want) return true;
+  if (!CLIPPED.test(output)) return false;
+  const head = bare(output.replace(CLIPPED, "")).replace(OPEN_MARKER, "").trimEnd();
+  return head.length > 0 && want.startsWith(head);
+}
 
 export function segments(events: AgentEvent[], landed: boolean, reply: string): Segment[] {
   const said = (e: AgentEvent) => (e.kind === "text" || (e.kind === "thinking" && !e.parent)) && !!(e.output ?? "").trim();
   const isText = (e: AgentEvent) => e.kind === "text";
   let last = -1;
-  if (landed) events.forEach((e, i) => (last = said(e) && isText(e) && !e.parent && bare(e.output ?? "") === reply.trim() ? i : last));
+  if (landed) events.forEach((e, i) => (last = said(e) && isText(e) && !e.parent && isReply(e.output ?? "", reply) ? i : last));
   const out: Segment[] = [];
   events.forEach((e, i) => {
     if (i === last) return;

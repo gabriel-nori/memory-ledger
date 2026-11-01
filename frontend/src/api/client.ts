@@ -362,6 +362,8 @@ export const api = {
   },
   retryAgent: (id: string) => post<{ ok: boolean; reply_id: string }>("/api/agent-retry", { id }),
   /** Stop a queued or running reply; it fails as cancelled, so Retry runs it again. */
+  spawnAgent: (parent_id: string, prompt: string) =>
+    post<{ ok: boolean; subagent_id: string }>("/api/agent-spawn", { parent_id, prompt }),
   cancelAgent: (id: string) => post<{ ok: boolean; reply_id: string; was: string }>("/api/agent-cancel", { id }),
   /** Turn an installed plugin on or off in ~/.claude/settings.json; answers the new list. */
   setAgentPlugin: (key: string, enabled: boolean) =>

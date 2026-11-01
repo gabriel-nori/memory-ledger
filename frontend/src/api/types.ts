@@ -1364,7 +1364,7 @@ export type AgentMsgStatus = "queued" | "running" | "done" | "question" | "error
 export interface AgentMessage {
   id: string;
   conv_id: string;
-  role: "user" | "agent";
+  role: "user" | "agent" | "subagent";
   text: string;
   at: string;
   status: AgentMsgStatus;
@@ -1386,6 +1386,10 @@ export interface AgentMessage {
   node_id: string;
   /** The agent's suggested next message; Tab on an empty input takes it. */
   next_action: string;
+  /** A sub-agent (role "subagent"): the row that started it, what it is called and was asked. */
+  parent_msg_id?: string;
+  label?: string;
+  prompt?: string;
 }
 
 export interface AgentConversations extends Envelope {
@@ -1395,6 +1399,8 @@ export interface AgentConversations extends Envelope {
 export interface AgentThread extends Envelope {
   conversation: AgentConversation;
   messages: AgentMessage[];
+  /** Every sub-agent of the thread, flat; present only while the `subagent_tracking` flag is on. */
+  subagents?: AgentMessage[];
 }
 
 export interface AgentSendResult extends Envelope {

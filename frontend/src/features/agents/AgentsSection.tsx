@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { IconName } from "@/components";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
@@ -22,6 +21,8 @@ import { Section } from "@/features/shell/Section";
 import { UsageMeter } from "@/features/shell/UsageMeter";
 import { formatDate, truncate } from "@/lib/format";
 import { segments } from "./segments";
+import { EventLog } from "./EventLog";
+import { SpawnForm, SubAgentBlocks } from "./SubAgents";
 import { useSpeakBlocks } from "./voice/useSpeakBlocks";
 import type { TurnEnd } from "./voice/useSpeakBlocks";
 import { useVoiceSession } from "./voice/useVoiceSession";
@@ -34,7 +35,6 @@ import type {
   AgentConnector,
   AgentConvState,
   AgentConversation,
-  AgentEvent,
   AgentMessage,
   VoiceConfig,
   VoiceStatus,
@@ -291,7 +291,9 @@ function Thread({ id, voice, summary, connectors, defaults, writable, onCreated,
   });
   const conv = thread.data?.conversation ?? summary;
   const messages = useMemo(() => (thread.data ? thread.data.messages : null), [thread.data]);
-  const live = !!messages?.some((m) => m.status === "queued" || m.status === "running");
+  const subagents = thread.data?.subagents;   // flag `subagent_tracking`; undefined while it is off
+  const live = !!messages?.some((m) => m.status === "queued" || m.status === "running")
+    || !!subagents?.some((m) => m.status === "queued" || m.status === "running");
   // The list polls slower than the thread; tell it when a reply lands.
   const wasLive = useRef(live);
   useEffect(() => setFast(live), [live]);
@@ -455,6 +457,13 @@ function Thread({ id, voice, summary, connectors, defaults, writable, onCreated,
           <MessageItem
             key={m.id}
             m={m}
+            subs={subagents}
+            onSpawn={async (prompt) => {
+              const r = await api.spawnAgent(m.id, prompt);
+              if (!r.ok) throw new Error("could not start the sub-agent");
+              thread.refresh();
+            }}
+            onCancelSub={(sid) => void api.cancelAgent(sid).then(() => thread.refresh(), (e: Error) => setError(e.message))}
             translateTo={vcfg?.translate ? vcfg.translate_target : null}
             writable={writable}
             onRetry={() => void api.retryAgent(m.id).then(() => { thread.refresh(); onChanged(); }, (e: Error) => setError(e.message))}
@@ -516,8 +525,12 @@ function Said({ text, target }: { text: string; target: string | null }) {
   );
 }
 
-function MessageItem({ m, writable, translateTo, onRetry, onCancel }: {
+function MessageItem({ m, subs, onSpawn, onCancelSub, writable, translateTo, onRetry, onCancel }: {
   m: AgentMessage;
+  /** The thread's sub-agents when the `subagent_tracking` flag is on; undefined when off. */
+  subs: AgentMessage[] | undefined;
+  onSpawn: (prompt: string) => Promise<void>;
+  onCancelSub: (id: string) => void;
   /** Show the agent's text translated into this language, or as written when null. */
   translateTo: string | null;
   writable: boolean;
@@ -551,6 +564,7 @@ function MessageItem({ m, writable, translateTo, onRetry, onCancel }: {
         </div>
       ) : m.status === "error" ? (
         <div className="ml-agents__bubble ml-agents__bubble--error">
+          {m.role === "agent" && m.text.trim() ? <Said text={m.text} target={translateTo} /> : null}
           <StatusMessage tone="error">{m.error || "the reply failed"}</StatusMessage>
           <Button size="sm" disabled={!writable} onClick={onRetry}>
             Retry
@@ -576,45 +590,13 @@ function MessageItem({ m, writable, translateTo, onRetry, onCancel }: {
         <time dateTime={m.at} title={m.at}>
           {formatDate(m.at)}
         </time>
+        {subs && m.role === "agent" && !running ? <SpawnForm writable={writable} onSpawn={onSpawn} /> : null}
       </div>
+      {subs && m.role === "agent" ? (
+        // flag subagent_tracking on: each sub-agent is a block under the message it belongs to
+        <SubAgentBlocks parentId={m.id} subs={subs} writable={writable} onCancel={onCancelSub} />
+      ) : null}
     </li>
-  );
-}
-
-const KIND_ICON: Record<string, IconName> = { tool: "tool", skill: "cube", agent: "sparkle", mcp: "plug", thinking: "thinking", text: "message", note: "info" };
-
-/** Every tool, skill and subagent the reply used, folded shut by default. */
-function EventLog({ events, running }: { events: AgentEvent[]; running: boolean }) {
-  const counts = new Map<string, number>();
-  for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
-  const summary = [...counts.entries()].map(([k, n], i) => (
-    <span key={k}>
-      {i ? " · " : ""}
-      <Icon name={KIND_ICON[k] ?? "dot"} /> {n} {k}{n > 1 ? "s" : ""}
-    </span>
-  ));
-  return (
-    <details className="ml-agents__log">
-      <summary>
-        {summary}
-        {running ? " …" : ""}
-      </summary>
-      <ul aria-label="agent activity">
-        {events.map((e, i) => (
-          <li key={e.id || i} className={e.parent ? "is-nested" : ""}>
-            <details>
-              <summary>
-                <span aria-hidden="true"><Icon name={KIND_ICON[e.kind] ?? "dot"} /></span> <b>{e.name}</b>
-                {e.tool && e.tool !== e.name ? <span className="ml-agents__muted"> {e.tool}</span> : null}
-                {e.error ? <Badge tone="danger">failed</Badge> : null}
-              </summary>
-              {e.input ? <pre className="ml-agents__pre">{e.input}</pre> : null}
-              {e.output ? <pre className="ml-agents__pre">{e.output}</pre> : null}
-            </details>
-          </li>
-        ))}
-      </ul>
-    </details>
   );
 }
 
