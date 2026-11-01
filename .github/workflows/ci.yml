@@ -15,6 +15,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # A hung leg must fail in minutes, not burn the runner's six hours.
+    timeout-minutes: 30
     # bash everywhere (Git Bash on Windows), so every step reads the same on
     # all three; `python` is what setup-python puts on PATH on each.
     defaults:
@@ -112,7 +114,7 @@ jobs:
           SECOND_BRAIN_HOME: ${{ runner.temp }}/brain
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
           PYTHONIOENCODING: utf-8
-        run: python -m pytest tests
+        run: python -m pytest tests --durations=25 -ra
 
       # Manifest validation exists because .claude-plugin/plugin.json and
       # marketplace.json are hand-edited and never executed — a typo or a
