@@ -16,7 +16,7 @@
 
 /* The menu grows out of its button, not out of its own centre. */
 .ml-dd__menu {
-  position: absolute; top: calc(100% + 6px); min-width: 216px; max-width: 290px;
+  position: absolute; top: calc(100% + 6px); min-width: 216px; max-width: min(290px, 94vw);
   background: var(--panel); border: 0.5px solid var(--border); border-top-color: var(--material-edge);
   border-radius: 12px;
   backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);

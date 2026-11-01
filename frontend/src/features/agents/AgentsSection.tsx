@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/api/client";
@@ -26,7 +26,7 @@ import { SpawnForm, SubAgentBlocks } from "./SubAgents";
 import { useSpeakBlocks } from "./voice/useSpeakBlocks";
 import type { TurnEnd } from "./voice/useSpeakBlocks";
 import { useVoiceSession } from "./voice/useVoiceSession";
-import { VoiceBar } from "./voice/VoiceBar";
+import { ConversationButton, DictateButton, VoiceBar, VoiceOptions, voiceReady } from "./voice/VoiceBar";
 import { speech } from "./voice/speech";
 import { useTranslated } from "./voice/translate";
 import { splitAttachments } from "@/lib/markdown";
@@ -66,6 +66,8 @@ export function AgentsSection() {
   const selected = params.get("c") ?? "";
   const [q, setQ] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  // On a narrow screen the list is a collapsed rail that opens over the thread.
+  const [listOpen, setListOpen] = useState(false);
 
   const status = usePolling((signal) => api.agents(signal), { intervalMs: 60_000 });
   const voice = usePolling((signal) => api.voice(signal), { intervalMs: 60_000 });
@@ -84,7 +86,10 @@ export function AgentsSection() {
   const active = all.filter((c) => !c.hidden && matches(c));
   const hidden = all.filter((c) => c.hidden && matches(c));
 
-  const open = (id: string) => setParams(id ? { c: id } : {});
+  const open = (id: string) => {
+    setParams(id ? { c: id } : {});
+    setListOpen(false);
+  };
   const current = all.find((c) => c.id === selected);
 
   // Chats that are not on screen keep being read when asked to: a chat that is working
@@ -102,7 +107,18 @@ export function AgentsSection() {
       {convs.error ? <StatusMessage tone="error">{convs.error}</StatusMessage> : null}
       {status.data?.config._problem ? <StatusMessage tone="error">{status.data.config._problem}</StatusMessage> : null}
       <div className="ml-agents">
-        <aside className="ml-agents__side" aria-label="agent conversations">
+        <button
+          type="button"
+          className="ml-agents__rail"
+          aria-label="conversations"
+          aria-expanded={listOpen}
+          title="conversations"
+          onClick={() => setListOpen((v) => !v)}
+        >
+          <Icon name="message" />
+        </button>
+        {listOpen ? <div className="ml-agents__scrim" onClick={() => setListOpen(false)} /> : null}
+        <aside className={`ml-agents__side${listOpen ? " is-open" : ""}`} aria-label="agent conversations">
           <div className="ml-agents__tools">
             <SearchInput value={q} onChange={setQ} placeholder="search conversations" aria-label="search conversations" />
             <Button size="sm" variant="primary" onClick={() => open("")} title="Start a new conversation" disabled={!writable}>
@@ -506,7 +522,7 @@ function connectorOf(connectors: AgentConnector[] | null, id: string) {
 
 function initialPick(connectors: AgentConnector[], defaults: { default_connector: string; context_turns: number }): Pick {
   const c = connectorOf(connectors, defaults.default_connector) ?? connectors.find((x) => x.enabled) ?? connectors[0];
-  return { connector: c?.id ?? "", model: c?.default_model ?? "", full_tools: false, context_turns: defaults.context_turns };
+  return { connector: c?.id ?? "", model: c?.default_model ?? "", full_tools: true, context_turns: defaults.context_turns };
 }
 
 /** An agent's text, shown in the target language when translation is on, with the original a click away. */
@@ -675,6 +691,8 @@ const TURN_OPTIONS = Array.from({ length: 11 }, (_, n) => ({
   label: n === 0 ? "no history" : `last ${n} exchange${n > 1 ? "s" : ""}`,
 }));
 
+const MAX_LINES = 8;
+
 function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, connectors, writable, busy, suggestion, error, onError, onPick, onSent }: ComposerProps) {
   const draftKey = conv?.id ?? "";
   const [text, setText] = useState(() => readDraft(draftKey).text);
@@ -685,6 +703,7 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
   const [dismissed, setDismissed] = useState(false);
   const [files, setFiles] = useState<Pending[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [options, setOptions] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const keys = useRef(0);
   const query = slashQuery(text);
@@ -695,6 +714,7 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
   const usable = !!c && c.enabled && !!pick?.model;
   const ready = files.filter((f) => f.state === "ready");
   const saving = files.some((f) => f.state === "saving");
+  const talkMode = !text.trim() && !files.length && voiceReady(voice);
   const canSend = writable && usable && !sending && !saving && (!!text.trim() || ready.length > 0);
 
   // Drafts are local first: every edit lands in localStorage at once and goes to
@@ -727,6 +747,19 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
   useEffect(() => {
     if (shown.current.text !== readDraft(draftKey).text) setText(readDraft(draftKey).text);
   }, [draftKey]);
+
+  // The box grows with what is typed, up to MAX_LINES lines, then scrolls.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const st = getComputedStyle(el);
+    const line = parseFloat(st.lineHeight) || 20;
+    const pad = (parseFloat(st.paddingTop) || 0) + (parseFloat(st.paddingBottom) || 0) + (parseFloat(st.borderTopWidth) || 0) + (parseFloat(st.borderBottomWidth) || 0);
+    const max = line * MAX_LINES + pad;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, [text]);
 
   const drop = (f: Pending) => {
     if (f.preview) URL.revokeObjectURL(f.preview);
@@ -875,8 +908,9 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         </p>
       ) : null}
       {error ? <StatusMessage tone="error">{error}</StatusMessage> : null}
-      {pick && connectors ? (
-        <div className="ml-agents__pickers">
+      {!(pick && connectors) ? <Spinner label="reading connectors" /> : null}
+      {options && pick && connectors ? (
+        <div className="ml-agents__pickers" role="group" aria-label="message options">
           <ModelPicker pick={pick} connectors={connectors} disabled={!writable} onPick={onPick} />
           <Select
             aria-label="context"
@@ -899,12 +933,11 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
           {cmds.data ? (
             <PluginsMenu plugins={cmds.data.plugins} disabled={!writable} onChange={cmds.setData} />
           ) : null}
+          <VoiceOptions status={voice} conv={conv} ttsOn={ttsOn} writable={writable} onTts={onTts} onVerbosity={onVerbosity} />
         </div>
-      ) : (
-        <Spinner label="reading connectors" />
-      )}
+      ) : null}
       {cmds.error ? <StatusMessage tone="error">{cmds.error}</StatusMessage> : null}
-      <VoiceBar session={session} status={voice} conv={conv} ttsOn={ttsOn} writable={writable} onTts={onTts} onVerbosity={onVerbosity} />
+      <VoiceBar session={session} />
       {files.length ? (
         <ul className="ml-agents__files" aria-label="attached files">
           {files.map((f) => (
@@ -941,30 +974,46 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         >
           <Icon name="paperclip" />
         </Button>
-        {popup ? <CommandPopup items={matches} active={at} readOnly={readOnly} onPick={choose} onHover={setAt} /> : null}
-        <TextArea
-          ref={box}
-          rows={2}
-          value={text}
-          disabled={!writable}
-          placeholder={busy ? "The agent is still answering. You can queue another message." : suggestion ? `${suggestion}  (Tab to use)` : "Write to the agent. Enter sends, Shift+Enter for a new line, / for a skill."}
-          aria-label="message to the agent"
-          onChange={(e) => {
-            edit(e.target.value);
-            setAt(0);
-            setDismissed(false);
-          }}
-          onKeyDown={onKey}
-          onPaste={(e: ClipboardEvent<HTMLTextAreaElement>) => {
-            const pasted = Array.from(e.clipboardData?.files ?? []);
-            if (!pasted.length) return;
-            e.preventDefault();
-            attach(pasted);
-          }}
-        />
-        <Button variant="primary" disabled={!canSend} onClick={() => void send()}>
-          {sending ? "sending…" : "Send"}
+        <Button
+          variant="ghost"
+          aria-label="Options"
+          aria-expanded={options}
+          title="Agent, model, history, plugins, read-only and voice for this message"
+          onClick={() => setOptions((v) => !v)}
+        >
+          <Icon name="sliders" />
         </Button>
+        {popup ? <CommandPopup items={matches} active={at} readOnly={readOnly} onPick={choose} onHover={setAt} /> : null}
+        <div className="ml-agents__field">
+          <TextArea
+            ref={box}
+            rows={1}
+            value={text}
+            disabled={!writable}
+            placeholder={busy ? "The agent is still answering. You can queue another message." : suggestion ? `${suggestion}  (Tab to use)` : "Write to the agent. Enter sends, Shift+Enter for a new line, / for a skill."}
+            aria-label="message to the agent"
+            onChange={(e) => {
+              edit(e.target.value);
+              setAt(0);
+              setDismissed(false);
+            }}
+            onKeyDown={onKey}
+            onPaste={(e: ClipboardEvent<HTMLTextAreaElement>) => {
+              const pasted = Array.from(e.clipboardData?.files ?? []);
+              if (!pasted.length) return;
+              e.preventDefault();
+              attach(pasted);
+            }}
+          />
+          <DictateButton session={session} status={voice} writable={writable} />
+        </div>
+        {talkMode ? (
+          <ConversationButton session={session} status={voice} conv={conv} writable={writable} />
+        ) : (
+          <Button variant="primary" disabled={!canSend} onClick={() => void send()}>
+            {sending ? "sending…" : "Send"}
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -3,9 +3,35 @@
   display: grid; grid-template-columns: 300px 1fr; gap: var(--space-4);
   flex: 1; min-height: 0;
 }
+.ml-agents__rail, .ml-agents__scrim { display: none; }
 @media (max-width: 760px) {
-  .ml-agents { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .ml-agents__side { max-height: 30vh; }
+  /* The list stays on the left as a slim rail; opening it lays it over the thread. */
+  .ml-agents { grid-template-columns: 44px minmax(0, 1fr); gap: var(--space-2); position: relative; }
+  .ml-agents__rail {
+    display: flex; align-items: center; justify-content: center; align-self: start;
+    width: 44px; height: 44px; margin-top: 44px; padding: 0; cursor: pointer;
+    color: var(--fg); background: var(--panel-solid); border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .ml-agents__rail:hover { background: var(--press); }
+  .ml-agents__scrim {
+    display: block; position: fixed; inset: 0; z-index: var(--z-scrim);
+    background: #0006; animation: ml-fade var(--t-move) var(--ease-spring);
+  }
+  .ml-agents__side {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: var(--z-drawer);
+    width: min(320px, 86vw); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-panel);
+    transform: translateX(-110%); visibility: hidden;
+    transition: transform var(--t-move) var(--ease-spring), visibility 0s var(--t-move);
+  }
+  .ml-agents__side.is-open { transform: none; visibility: visible; transition-delay: 0s; }
+  .ml-agents__main { grid-column: 2; }
+  .ml-agents__item { max-width: 92%; }
+  .ml-agents__head { padding: var(--space-2) var(--space-3); }
+  .ml-agents__actions .ml-search { width: 100%; }
+  .ml-agents__thread { padding: var(--space-3); }
+  .ml-agents__compose { padding: var(--space-2) var(--space-3); }
 }
 .ml-agents__side, .ml-agents__main {
   border: 0.5px solid var(--border); border-radius: var(--radius-lg);
@@ -149,7 +175,12 @@
 }
 .ml-agents__hint { color: var(--muted); font-size: 11.5px; margin: 0; }
 .ml-agents__compose-row { position: relative; display: flex; gap: var(--space-2); align-items: flex-end; }
-.ml-agents__compose-row .ml-input--area { min-height: 44px; resize: none; }
+.ml-agents__field { position: relative; flex: 1; min-width: 0; display: flex; }
+.ml-agents__field .ml-input--area { min-height: 44px; resize: none; padding-right: 44px; border-radius: var(--radius-lg); }
+.ml-agents__dictate { position: absolute; right: var(--space-2); bottom: 0; height: 44px; display: flex; gap: var(--space-1); align-items: center; }
+/* Every control beside the box is as tall as one line of it, so the icons sit on one line. */
+.ml-agents__compose-row > .ml-btn { height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ml-agents__compose-row > .ml-btn--ghost { width: 44px; padding: 0; }
 
 /* The slash-command popup: above the message box, over the thread. */
 .ml-slash {
@@ -207,3 +238,4 @@
 .ml-agents__sub-toggle:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 .ml-agents__sub-body { margin: 4px 0 4px var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
 .ml-agents__spawn { display: flex; align-items: flex-start; gap: var(--space-2); flex: 1 1 100%; }
+.ml-agents__field:has(.ml-agents__dictate .ml-btn--primary) .ml-input--area { padding-right: 170px; }
