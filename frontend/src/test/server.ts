@@ -111,7 +111,7 @@ export const handlers = [
   http.get("/api/b2b-thread", ({ request }) => {
     const peer = new URL(request.url).searchParams.get("peer") ?? "";
     return HttpResponse.json(
-      peer === b2bThreadFixture.peer_id ? b2bThreadFixture : { ok: true, peer_id: peer, messages: [] },
+      peer === b2bThreadFixture.peer_id ? b2bThreadFixture : { ok: true, peer_id: peer, messages: [], has_more: false, next_before: "" },
     );
   }),
   http.get("/api/tasks", () => HttpResponse.json(tasksFixture)),
