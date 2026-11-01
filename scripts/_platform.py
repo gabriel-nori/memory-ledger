@@ -126,6 +126,30 @@ def voice_venv() -> Path:
     return cache_dir() / "memory-ledger" / "voice"
 
 
+def node_home() -> Path:
+    """Where `scripts/setup.py` unpacks a portable Node.js when the machine has none."""
+    return cache_dir() / "memory-ledger" / "node"
+
+
+def node_bin_dir() -> Path | None:
+    """The directory holding npm in the portable Node, or None when there is none."""
+    root = node_home()
+    for d in (root / "current", root / "current" / "bin"):
+        if (d / ("npm.cmd" if WINDOWS else "npm")).exists():
+            return d
+    return None
+
+
+def use_portable_node() -> None:
+    """Put the portable Node first on PATH for this process and its children,
+    unless a system npm is already there."""
+    if shutil.which("npm"):
+        return
+    d = node_bin_dir()
+    if d:
+        os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+
+
 def python3() -> list[str]:
     """argv prefix that runs a Python 3: this interpreter, else `py -3` on
     Windows, else python3 on PATH."""

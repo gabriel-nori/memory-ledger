@@ -128,6 +128,10 @@ export const handlers = [
   ),
   http.get("/api/timezones", () => ok({ zones: ["UTC", "America/Sao_Paulo", "Europe/Lisbon"] })),
   http.get("/api/capture", () => HttpResponse.json(captureFixture)),
+  write("/api/update/apply", () => ok({ installed: "v0.11.0" })),
+  http.get("/api/update", () =>
+    HttpResponse.json({ ok: true, current: "0.10.0", latest: "v0.10.0", available: false,
+      installable: true, why_not: "", notes: "", url: "", error: "" })),
   http.get("/api/doctor", () => HttpResponse.json(doctorFixture)),
   http.get("/api/backups", () => HttpResponse.json(backupsFixture)),
   http.get("/api/consolidate-preview", () => HttpResponse.json(consolidationPreviewFixture)),

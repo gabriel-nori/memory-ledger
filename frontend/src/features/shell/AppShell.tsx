@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
+import { UpdateBanner } from "./UpdateBanner";
 import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { api } from "@/api/client";
 import { useMeta } from "@/api/MetaContext";
@@ -68,6 +69,7 @@ export function AppShell() {
           </StatusMessage>
         </div>
       ) : null}
+      <UpdateBanner />
       <Outlet />
     </>
   );

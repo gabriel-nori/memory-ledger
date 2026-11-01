@@ -2,17 +2,18 @@
 """memory-ledger setup — everything a machine needs, on macOS, Linux or Windows.
 
     python3 scripts/setup.py [--voice] [--piper] [--stt-model medium]
-                             [--skip-venv] [--skip-ui] [--json]
+                             [--launcher] [--skip-venv] [--skip-ui] [--json]
 
 `scripts/setup.sh` and `scripts/setup.ps1` are thin wrappers that find a Python
 and run this. Every step is idempotent: run it again after an upgrade and it
 does only what is missing.
 
-1. Python: 3.10 or newer, the one running this.
+1. Python: 3.11 or newer, the one running this.
 2. The server's venv (what `serve.py` builds on first start), from
    `scripts/requirements-server.txt`.
-3. The UI: `npm ci` and `npm run build` in `frontend/` (skipped, with the
-   reason, when npm is not installed: the API runs without it).
+3. The UI: `npm ci` and `npm run build` in `frontend/` (a portable Node LTS is
+   downloaded and checked against nodejs.org's SHA-256 when npm is missing; skipped
+   when the bundle is already built, as in a release).
 4. Voice, with `--voice`: a separate venv (`_platform.voice_venv()`) with
    faster-whisper, and the STT model (`--stt-model`, default `medium`)
    downloaded into it once; `--piper` adds Piper there too. Without it, the
@@ -28,11 +29,16 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -41,7 +47,8 @@ sys.path.insert(0, str(HERE))
 import _platform  # noqa: E402
 import _textio  # noqa: E402
 
-MIN_PY = (3, 10)
+MIN_PY = (3, 11)
+NODE_MAJOR = 20                 # the oldest LTS the UI builds on; the newest LTS is fetched
 VOICE_PACKAGES = ["faster-whisper", "numpy"]
 
 steps: list[dict] = []
@@ -119,14 +126,84 @@ def server_venv() -> None:
     step("server venv", not why, why or str(d))
 
 
+def _node_target() -> tuple[str, str, str]:
+    """(nodejs.org platform, arch, archive extension) for this machine."""
+    arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(platform.machine().lower(), "x64")
+    if _platform.WINDOWS:
+        return "win", arch, "zip"
+    return ("darwin" if sys.platform == "darwin" else "linux"), arch, "tar.xz"
+
+
+def _get(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=120) as r:
+        return r.read()
+
+
+def portable_node() -> str:
+    """Download the newest Node LTS into `_platform.node_home()`, checked against
+    the SHA-256 nodejs.org publishes. Returns "" when done, else why not."""
+    try:
+        index = json.loads(_get("https://nodejs.org/dist/index.json"))
+        rel = next(r for r in index if r.get("lts") and int(r["version"].lstrip("v").split(".")[0]) >= NODE_MAJOR)
+        ver = rel["version"]
+        osn, arch, ext = _node_target()
+        name = f"node-{ver}-{osn}-{arch}"
+        root = _platform.node_home()
+        dest = root / ver
+        if not dest.exists():
+            say(f"downloading Node.js {ver} ({name}.{ext}) into {root}")
+            blob = _get(f"https://nodejs.org/dist/{ver}/{name}.{ext}")
+            sums = _get(f"https://nodejs.org/dist/{ver}/SHASUMS256.txt").decode("utf-8")
+            want = next(line.split()[0] for line in sums.splitlines() if line.endswith(f"{name}.{ext}"))
+            if hashlib.sha256(blob).hexdigest() != want:
+                return f"checksum mismatch for {name}.{ext}: refusing to unpack it"
+            root.mkdir(parents=True, exist_ok=True)
+            tmp = root / f".{ver}.partial"
+            shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir()
+            archive = tmp / f"node.{ext}"
+            archive.write_bytes(blob)
+            if ext == "zip":
+                with zipfile.ZipFile(archive) as z:
+                    z.extractall(tmp)
+            else:
+                with tarfile.open(archive) as t:
+                    t.extractall(tmp, filter="data")
+            archive.unlink()
+            (tmp / name).rename(dest)
+            shutil.rmtree(tmp, ignore_errors=True)
+        link = root / "current"
+        if link.is_symlink():
+            link.unlink()
+        elif link.exists():
+            os.rmdir(link)              # a Windows junction: removes the link, not the Node behind it
+        _platform.link_dir(link, dest)
+        return ""
+    except (OSError, ValueError, StopIteration, KeyError, tarfile.TarError, zipfile.BadZipFile) as e:
+        return f"{type(e).__name__}: {e}"
+
+
 def ui() -> None:
     import serve
-    if not shutil.which("npm"):
-        step("ui", None, "npm is not on PATH: install Node.js 20+ for the page; the API runs without it")
+    if (serve.INDEX.exists() and not serve.ui_stale()):
+        step("ui", True, f"already built in {serve.DIST}")
         return
+    _platform.use_portable_node()
+    if not shutil.which("npm"):
+        why = portable_node()
+        if why:
+            step("ui", None, f"no npm and no portable Node ({why}); the API runs without the page")
+            return
+        _platform.use_portable_node()
     with stdout_to_stderr():
         why = serve.ensure_ui(auto=True)
     step("ui", not why, why or f"built in {serve.DIST}")
+
+
+def launcher() -> None:
+    import launcher as launcher_mod
+    ok, detail = launcher_mod.install()
+    step("launcher", ok, detail)
 
 
 def voice_venv(stt_model: str, piper: bool) -> None:
@@ -204,6 +281,8 @@ def main(argv=None) -> int:
     ap.add_argument("--piper", action="store_true", help="with --voice: also install Piper (TTS on any OS)")
     ap.add_argument("--stt-model", default=os.environ.get("BRAIN_STT_MODEL", "medium"),
                     help="faster-whisper model to download (default medium)")
+    ap.add_argument("--launcher", action="store_true",
+                    help="also put a launcher on the Desktop that starts everything")
     ap.add_argument("--skip-venv", action="store_true", help="do not build the server's venv")
     ap.add_argument("--skip-ui", action="store_true", help="do not build the UI")
     ap.add_argument("--json", action="store_true", help="print one JSON report instead of progress")
@@ -226,6 +305,8 @@ def main(argv=None) -> int:
         stt_report()
         brain()
         doctor()
+        if a.launcher:
+            launcher()
     failed = [s["step"] for s in steps if s["ok"] is False]
     if a.json:
         print(json.dumps({"ok": not failed, "platform": sys.platform, "steps": steps,
