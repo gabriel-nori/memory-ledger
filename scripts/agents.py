@@ -914,6 +914,7 @@ class _Log:
         self.subs: dict[str, dict[str, Any]] = {}   # Task call id -> its subagent (tracked)
         # agentId -> label of a sub-agent launched in the background and not yet reported done
         self.background: dict[str, str] = {}
+        self.background_call: dict[str, str] = {}   # agentId -> id of the Task call that launched it
         self.track = flags.enabled("subagent_tracking")
 
     def add(self, ev: dict[str, Any]) -> dict[str, Any]:
@@ -1001,6 +1002,19 @@ def _result_text(content: Any) -> str:
     return str(content or "")
 
 
+def _report_text(message: dict[str, Any]) -> str:
+    """The text of a user-side message: what a background sub-agent reported back."""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return str(content or "")
+    parts = []
+    for b in content:
+        if isinstance(b, dict):
+            parts.append(_result_text(b.get("content")) if b.get("type") == "tool_result"
+                         else str(b.get("text") or ""))
+    return "\n".join(p for p in parts if p)
+
+
 def _log_add(log: "_Log", ev: dict[str, Any], parent: str) -> None:
     """Tracking off: every event goes in the reply's log. On: what a tracked subagent did
     goes in that subagent's own log, and the reply's keeps the call."""
@@ -1016,9 +1030,10 @@ def _log_add(log: "_Log", ev: dict[str, Any], parent: str) -> None:
 
 def _close_subagents(con: sqlite3.Connection, reply_id: str, why: str,
                      states: tuple[str, ...] = ("running",)) -> None:
-    """A reply that ended: the subagents it left running end with it."""
+    """A reply that ended: the subagents its Task calls left running end with it. A sub-agent
+    started by hand (no `tool_use_id`) is a run of its own and is not ended by its root."""
     con.execute("UPDATE agent_msg SET status='error', error=?, finished_at=? WHERE role='subagent'"
-                " AND reply_to=? AND status IN (%s)" % ",".join("?" * len(states)),
+                " AND tool_use_id<>'' AND reply_to=? AND status IN (%s)" % ",".join("?" * len(states)),
                 (why, now_iso(), reply_id, *states))
     con.commit()
 
@@ -1068,11 +1083,15 @@ def handle_stream_line(log: _Log, line: str) -> dict[str, Any] | None:
                     if launched and target["kind"] == "agent":
                         # only the launch came back: the sub-agent is still running
                         log.background[launched.group(1)] = target["name"]
+                        log.background_call[launched.group(1)] = target["id"]
                         fresh.add(launched.group(1))
                     elif log.track:
                         log.sub_end(target)
         for agent_id in [a for a in log.background if a in blob and a not in fresh]:
             log.background.pop(agent_id)              # a later message names it: it reported back
+            call = log.background_call.pop(agent_id, "")
+            if log.track and call:
+                log.sub_end({"id": call, "output": _report_text(ev.get("message") or {})})
     elif t == "result":
         return ev
     return None
@@ -1485,7 +1504,7 @@ def recover() -> int:
     con = db()
     n = 0
     for r in con.execute("SELECT id, owner_pid, beat_at FROM agent_msg"
-                         " WHERE status='running' AND role<>'subagent'").fetchall():
+                         " WHERE status='running' AND (role='agent' OR tool_use_id='')").fetchall():
         if time.time() - (r["beat_at"] or 0) < BEAT_STALE_S:
             continue
         if r["owner_pid"] and r["owner_pid"] != os.getpid() and _alive(r["owner_pid"]):

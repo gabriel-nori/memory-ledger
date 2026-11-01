@@ -141,3 +141,34 @@ def test_a_reply_that_ends_with_background_work_open_is_an_error(con, monkeypatc
     monkeypatch.setattr(flags, "enabled", lambda name: False)
     log = run(con, [assistant([task("t1", "step 1")]), result("t1", LAUNCH)])
     assert sorted(set(log.background.values())) == ["Explore"]
+
+
+def test_a_background_sub_agent_that_reports_back_ends_done_not_error(con, monkeypatch):
+    monkeypatch.setattr(flags, "enabled", lambda name: name == "subagent_tracking")
+    notice = line(type="user", message={"content": "<task-notification>abc123 completed: "
+                                                    "found it</task-notification>"})
+    run(con, [assistant([task("t1", "step 1")]), result("t1", LAUNCH), notice])
+    agents._close_subagents(con, "r1", "interrupted: the reply ended first")
+    row = con.execute("SELECT status, text FROM agent_msg WHERE role='subagent'").fetchone()
+    assert row["status"] == "done" and "found it" in row["text"]
+
+
+def test_a_reply_ending_leaves_a_sub_agent_started_by_hand_alone(con):
+    flags.set_flag("subagent_tracking", True)
+    by_hand = agents.spawn(con, "r1", "check A", start=False)["subagent_id"]
+    con.execute("UPDATE agent_msg SET status='running' WHERE id=?", (by_hand,))
+    run(con, [assistant([task("t1", "tracked")])])
+    agents._close_subagents(con, "r1", "interrupted: the reply ended first")
+    st = {r["id"]: r["status"] for r in con.execute("SELECT * FROM agent_msg WHERE role='subagent'")}
+    assert st[by_hand] == "running" and sorted(st.values()) == ["error", "running"]
+
+
+def test_recover_fails_a_sub_agent_started_by_hand_and_left_running(con):
+    flags.set_flag("subagent_tracking", True)
+    by_hand = agents.spawn(con, "r1", "check A", start=False)["subagent_id"]
+    con.execute("UPDATE agent_msg SET status='running', beat_at=0, owner_pid=0 WHERE id=?",
+                (by_hand,))
+    con.commit()
+    agents.recover()
+    row = con.execute("SELECT status, error FROM agent_msg WHERE id=?", (by_hand,)).fetchone()
+    assert row["status"] == "error" and "server stopped" in row["error"]

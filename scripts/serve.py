@@ -376,7 +376,7 @@ def _replies_running() -> bool:
         con = graph.connect()
         try:
             return con.execute("SELECT 1 FROM agent_msg WHERE status='running' "
-                               "AND role='agent' LIMIT 1").fetchone() is not None
+                               "AND role IN ('agent','subagent') LIMIT 1").fetchone() is not None
         finally:
             con.close()
     except Exception:
