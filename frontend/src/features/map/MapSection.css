@@ -6,3 +6,5 @@
   position: fixed; bottom: var(--space-4); right: var(--space-4);
   max-width: 420px; z-index: var(--z-panel);
 }
+
+@media (max-width: 760px) { .ml-map__hint { display: none; } }

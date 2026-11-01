@@ -2,7 +2,7 @@
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
   margin-bottom: var(--space-3);
 }
-.ml-tasks__bar .ml-search { flex: 1 1 260px; min-width: 200px; }
+.ml-tasks__bar .ml-search { flex: 1 1 260px; min-width: min(200px, 100%); }
 .ml-tasks__clear {
   background: none; border: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer;
 }
@@ -129,3 +129,8 @@
 .ml-act--session .ml-act__title { color: var(--muted); font-weight: 500; }
 .ml-act__target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
 .ml-act__detail { grid-column: 2 / -1; min-width: 0; }
+
+@media (max-width: 520px) {
+  .ml-run__kv { grid-template-columns: 1fr; gap: 0; }
+  .ml-act { grid-template-columns: max-content 1fr; }
+}

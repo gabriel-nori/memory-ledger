@@ -13,3 +13,13 @@
   color: var(--muted); margin: 0 0 var(--space-5); font-size: 13px; line-height: 1.5;
 }
 .ml-section__lead code { color: var(--fg); }
+
+/* Phones: the gutters shrink so the content gets the width, and the heading
+   steps down. The top still clears the burger. */
+@media (max-width: 760px) {
+  .ml-section { padding: 60px var(--space-3) 40px; }
+  .ml-section--fill { padding: 60px var(--space-2) var(--space-2); height: 100dvh; }
+  .ml-section--fill.ml-section--bare { padding-top: var(--space-2); }
+  .ml-section__title { font-size: 22px; }
+  .ml-section__bar { flex-wrap: wrap; }
+}

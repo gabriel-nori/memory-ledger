@@ -71,8 +71,18 @@ reply is done.
 
 ## Tools: read-only or on, per conversation
 
-The composer's **Read-only** box is ticked by default. Untick it to turn tools on
-from the next turn; the reply then carries a *tools on* badge.
+A new chat starts with **Read-only** unticked, so tools are on; the reply carries a
+*tools on* badge. Tick the box (in the message **Options**) to make the chat read-only
+from the next turn.
+
+## The composer
+
+- The text box grows upward as you type, up to 8 lines, then scrolls.
+- **Dictate** is the microphone inside the box, on its right.
+- While nothing is typed (and speech in and out both work), the microphone where **Send** is
+  turns on **conversation mode**; once there is text or a file, it is Send again.
+- The **Options** button (sliders) opens agent and model, history (last n exchanges),
+  plugins, Read-only, Speak and narration.
 
 Read-only limits what the agent does **outside** the brain. The brain itself is
 read and written in both modes, without asking: that is the offload rule
