@@ -1,0 +1,4 @@
+.ml-update {
+  position: fixed; bottom: var(--space-4); right: var(--space-4); z-index: var(--z-panel);
+  display: flex; align-items: center; gap: var(--space-3); max-width: 520px;
+}

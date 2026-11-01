@@ -31,7 +31,7 @@ import graph
 import trigger
 import voice
 
-from . import commands, models as m, payloads, state, trigger_runtime
+from . import commands, models as m, payloads, state, trigger_runtime, updates
 from .errors import Refused
 
 ENVELOPE_RESPONSES = {
@@ -1230,3 +1230,10 @@ def delete_contracts(data: m.DeleteContracts = body(m.DeleteContracts)):
                                         + (["--force"] if data.force else [])))
     finally:
         spec.unlink(missing_ok=True)
+
+
+@router.post("/update/apply", tags=["settings"], summary="Install the latest release",
+             description="Downloads the release zip, verifies its SHA-256, swaps the code in "
+                         "and lets the server restart itself. The brain is never touched.")
+def update_apply():
+    return reply(updates.apply())

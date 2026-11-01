@@ -51,11 +51,12 @@ GET_ROUTES = [
     "/api/custom-triggers", "/api/custom-trigger",
     "/api/b2b-conversations", "/api/b2b-thread",
     "/api/agents", "/api/voice", "/api/agent-commands", "/api/agent-conversations", "/api/agent-thread", "/api/document", "/api/document-file",
-    "/api/scripts", "/api/script", "/api/tasks", "/api/task", "/api/usage-report", "/api/usage-summary",
+    "/api/health", "/api/update", "/api/scripts", "/api/script", "/api/tasks", "/api/task", "/api/usage-report", "/api/usage-summary",
 ]
 # Open on a --no-write server too: reading aloud changes nothing and calls no model.
 OPEN_POST_ROUTES = ["/api/voice-speak"]
 POST_ROUTES = [
+    "/api/update/apply",
     "/api/voice-config", "/api/voice-translate",
     "/api/set-due", "/api/add-task", "/api/complete", "/api/set-status",
     "/api/set-assignee", "/api/assign", "/api/merge-person", "/api/add-alias",

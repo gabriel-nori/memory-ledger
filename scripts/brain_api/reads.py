@@ -26,7 +26,7 @@ import trigger
 import usage_ingest
 import usage_report
 
-from . import commands, payloads, state, trigger_runtime
+from . import commands, payloads, state, trigger_runtime, updates
 
 router = APIRouter(prefix="/api")
 
@@ -96,6 +96,20 @@ def ui_prefs():
 def backups():
     return {"ok": True, "dir": str(graph.backups_dir()),
             "keep_days": graph.BACKUP_KEEP_DAYS, "backups": graph.list_backups()}
+
+
+@router.get("/health", tags=["settings"], summary="Liveness, for the launcher",
+            description="Answers as soon as the server is up. Reads nothing: use /api/doctor "
+                        "for the brain's verdict.")
+def health():
+    return {"ok": True}
+
+
+@router.get("/update", tags=["settings"], summary="Is a newer release out?",
+            description="Asks GitHub Releases (cached for 8 hours). `installable` is false for a "
+                        "git checkout; `?force=true` skips the cache.")
+def update_status(force: bool = Query(False)):
+    return updates.check(force=force)
 
 
 @router.get("/doctor", tags=["settings"], summary="The health check, as JSON",

@@ -1533,3 +1533,15 @@ export interface CustomTriggerDryRun {
   error: string;
   warnings?: string[];
 }
+
+/** GET /api/update: whether a newer release is out, and whether this install can take it. */
+export interface UpdateInfo extends Envelope {
+  current: string;
+  latest: string;
+  available: boolean;
+  installable: boolean;
+  why_not: string;
+  notes: string;
+  url: string;
+  error: string;
+}
