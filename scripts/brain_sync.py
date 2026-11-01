@@ -8,7 +8,7 @@ everything the file does, and the file can be fed back from the master:
 
   :Node        every node, props verbatim in `_props` (flattened too, for queries)
   :REL         every edge, with its props and created time
-  :MirrorRow   every row of the tables in graph.MIRROR_TABLES (trigger history,
+  :MirrorRow   every row of the tables in graph.mirror_tables() (trigger history,
                gates, checkpoints, channels, the co-activation tally)
   :MirrorFile  the brain home's own files people write (settings, user scripts,
                references, learned skills). Secrets are never sent.
@@ -86,7 +86,7 @@ def local_edges(con) -> list[dict]:
 def local_rows(con) -> list[dict]:
     have = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     out = []
-    for table, pk in graph.MIRROR_TABLES.items():
+    for table, pk in graph.mirror_tables().items():
         if table not in have:
             continue
         # the key is built by SQLite's json_array, exactly as the trigger builds
@@ -268,14 +268,9 @@ def build_restore(target: Path, m: dict, upto: int = 0) -> dict:
                         edges)
         rows = 0
         for table, key, data in m["rows"]:
-            if table not in graph.MIRROR_TABLES:
+            if table not in graph.mirror_tables():
                 continue
-            cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
-            d = {k: v for k, v in json.loads(data).items() if k in cols}
-            if d:
-                con.execute(f"INSERT OR REPLACE INTO {table}({', '.join(d)}) "
-                            f"VALUES({', '.join('?' * len(d))})", list(d.values()))
-                rows += 1
+            rows += graph.put_row(con, table, json.loads(data))
         graph._rebuild_blocked(con)
         # every insert above queued itself for the master it came from; drop that
         con.execute("DELETE FROM outbox")
@@ -469,14 +464,9 @@ def pull_changes(con, home: Path) -> dict:
         for table, key, data in mrows:
             uid = table + graph.EDGE_SEP + key
             alive_rows.add(uid)
-            if uid in p_rows or table not in graph.MIRROR_TABLES:
+            if uid in p_rows or table not in graph.mirror_tables():
                 continue
-            cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
-            d = {k: v for k, v in json.loads(data).items() if k in cols}
-            if d:
-                con.execute(f"INSERT OR REPLACE INTO {table}({', '.join(d)}) "
-                            f"VALUES({', '.join('?' * len(d))})", list(d.values()))
-                counts["rows"] += 1
+            counts["rows"] += graph.put_row(con, table, json.loads(data))
         for kind, ref in tombs:
             if kind == "node" and ref not in alive_nodes and ref not in p_nodes:
                 n = con.execute("DELETE FROM nodes WHERE id=?", (ref,)).rowcount
@@ -486,7 +476,7 @@ def pull_changes(con, home: Path) -> dict:
                                 (s, d, rel)).rowcount
             elif kind == "row" and ref not in alive_rows and ref not in p_rows:
                 table, _, key = ref.partition(graph.EDGE_SEP)
-                pk = graph.MIRROR_TABLES.get(table)
+                pk = graph.mirror_tables().get(table)
                 if not pk:
                     continue
                 n = con.execute(f"DELETE FROM {table} WHERE "
