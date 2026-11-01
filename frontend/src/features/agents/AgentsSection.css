@@ -150,8 +150,11 @@
 .ml-agents__hint { color: var(--muted); font-size: 11.5px; margin: 0; }
 .ml-agents__compose-row { position: relative; display: flex; gap: var(--space-2); align-items: flex-end; }
 .ml-agents__field { position: relative; flex: 1; min-width: 0; display: flex; }
-.ml-agents__field .ml-input--area { min-height: 44px; resize: none; padding-right: 44px; }
-.ml-agents__dictate { position: absolute; right: var(--space-2); bottom: 6px; display: flex; gap: var(--space-1); }
+.ml-agents__field .ml-input--area { min-height: 44px; resize: none; padding-right: 44px; border-radius: var(--radius-lg); }
+.ml-agents__dictate { position: absolute; right: var(--space-2); bottom: 0; height: 44px; display: flex; gap: var(--space-1); align-items: center; }
+/* Every control beside the box is as tall as one line of it, so the icons sit on one line. */
+.ml-agents__compose-row > .ml-btn { height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ml-agents__compose-row > .ml-btn--ghost { width: 44px; padding: 0; }
 
 /* The slash-command popup: above the message box, over the thread. */
 .ml-slash {
