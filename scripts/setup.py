@@ -29,26 +29,21 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import hashlib
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
-import tarfile
-import urllib.request
-import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import _node  # noqa: E402
 import _platform  # noqa: E402
 import _textio  # noqa: E402
 
 MIN_PY = (3, 11)
-NODE_MAJOR = 20                 # the oldest LTS the UI builds on; the newest LTS is fetched
 VOICE_PACKAGES = ["faster-whisper", "numpy"]
 
 steps: list[dict] = []
@@ -126,63 +121,6 @@ def server_venv() -> None:
     step("server venv", not why, why or str(d))
 
 
-def _node_target() -> tuple[str, str, str]:
-    """(nodejs.org platform, arch, archive extension) for this machine."""
-    arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(platform.machine().lower(), "x64")
-    if _platform.WINDOWS:
-        return "win", arch, "zip"
-    return ("darwin" if sys.platform == "darwin" else "linux"), arch, "tar.xz"
-
-
-def _get(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=120) as r:
-        return r.read()
-
-
-def portable_node() -> str:
-    """Download the newest Node LTS into `_platform.node_home()`, checked against
-    the SHA-256 nodejs.org publishes. Returns "" when done, else why not."""
-    try:
-        index = json.loads(_get("https://nodejs.org/dist/index.json"))
-        rel = next(r for r in index if r.get("lts") and int(r["version"].lstrip("v").split(".")[0]) >= NODE_MAJOR)
-        ver = rel["version"]
-        osn, arch, ext = _node_target()
-        name = f"node-{ver}-{osn}-{arch}"
-        root = _platform.node_home()
-        dest = root / ver
-        if not dest.exists():
-            say(f"downloading Node.js {ver} ({name}.{ext}) into {root}")
-            blob = _get(f"https://nodejs.org/dist/{ver}/{name}.{ext}")
-            sums = _get(f"https://nodejs.org/dist/{ver}/SHASUMS256.txt").decode("utf-8")
-            want = next(line.split()[0] for line in sums.splitlines() if line.endswith(f"{name}.{ext}"))
-            if hashlib.sha256(blob).hexdigest() != want:
-                return f"checksum mismatch for {name}.{ext}: refusing to unpack it"
-            root.mkdir(parents=True, exist_ok=True)
-            tmp = root / f".{ver}.partial"
-            shutil.rmtree(tmp, ignore_errors=True)
-            tmp.mkdir()
-            archive = tmp / f"node.{ext}"
-            archive.write_bytes(blob)
-            if ext == "zip":
-                with zipfile.ZipFile(archive) as z:
-                    z.extractall(tmp)
-            else:
-                with tarfile.open(archive) as t:
-                    t.extractall(tmp, filter="data")
-            archive.unlink()
-            (tmp / name).rename(dest)
-            shutil.rmtree(tmp, ignore_errors=True)
-        link = root / "current"
-        if link.is_symlink():
-            link.unlink()
-        elif link.exists():
-            os.rmdir(link)              # a Windows junction: removes the link, not the Node behind it
-        _platform.link_dir(link, dest)
-        return ""
-    except (OSError, ValueError, StopIteration, KeyError, tarfile.TarError, zipfile.BadZipFile) as e:
-        return f"{type(e).__name__}: {e}"
-
-
 def ui() -> None:
     import serve
     if (serve.INDEX.exists() and not serve.ui_stale()):
@@ -190,7 +128,7 @@ def ui() -> None:
         return
     _platform.use_portable_node()
     if not shutil.which("npm"):
-        why = portable_node()
+        why = _node.portable_node()
         if why:
             step("ui", None, f"no npm and no portable Node ({why}); the API runs without the page")
             return

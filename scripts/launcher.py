@@ -6,8 +6,8 @@
     python3 scripts/launcher.py status
     python3 scripts/launcher.py install    # put a launcher on the Desktop
 
-`start` runs `serve.py` detached (it owns the brain, the UI build and the voice
-workers), waits for `/api/health` (the first start builds the venv and can take
+`start` runs `serve.py` detached (it owns the brain, the UI build, a portable Node
+when the machine has no npm, and the voice workers), waits for `/api/health` (the first start builds the venv and can take
 minutes), then opens the page. Already running: it only opens the page. The pid
 and the log live in `<home>/run/` and `<home>/logs/serve.log`.
 
@@ -36,6 +36,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import _net  # noqa: E402
 import _platform  # noqa: E402
 import _switch  # noqa: E402
 
@@ -80,6 +81,11 @@ def _python() -> str:
 
 
 def start(open_browser: bool = True) -> int:
+    if not healthy():
+        why = _net.available()
+        if why:                                         # the first start downloads pip packages and Node
+            print(why, file=sys.stderr)
+            return 1
     if healthy():
         print(f"{NAME} is already running at {URL}")
     else:
