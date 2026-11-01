@@ -166,9 +166,11 @@ across results (minimum 160 chars each).
 `recall` labels every row:
 
 - `"matched"` — a lexical hit, it earned its rank
-- `"associated"` — reached by spreading activation only
+- `linked to "<title>"` — reached by spreading activation only; the title is the
+  lexical hit that fed it the most activation. (Falls back to `"associated"` when
+  that seed cannot be resolved.)
 
-Treat `associated` rows as leads, not answers. They are the mechanism that
+Treat `linked to` rows as leads, not answers. They are the mechanism that
 surfaces a blocker you did not ask about, and also the mechanism that occasionally
 surfaces something irrelevant.
 
@@ -181,7 +183,12 @@ seed        1 / (1 + fts_rank_position)
 spread      × 0.45 per hop, ÷ degree (fan-out), 2 hops, convergent paths sum
 strength    × (0.55 + 0.45 × strength)        strength = repetition, 21-day decay
 ubiquity    ÷ (1 + log2(1 + degree))          associated nodes only
+hub         ÷ sqrt(degree / 8) when degree > 8 associated nodes only
+tail cut    drop associated rows under 15% of the top score
 ```
+
+The cue is stemmed lightly (pt/en plurals and common suffixes) before the prefix
+query, so `deploys` and `deploying` both reach `deploy…`.
 
 ## Known sharp edges
 
