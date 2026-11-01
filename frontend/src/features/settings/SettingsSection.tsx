@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
 import { useMeta } from "@/api/MetaContext";
@@ -61,6 +62,13 @@ export function SettingsSection() {
     >
       {settings.loading ? <Spinner label="reading settings" /> : null}
       {settings.error ? <StatusMessage tone="error">{settings.error}</StatusMessage> : null}
+
+      <Card>
+        <h2 className="ml-settings__h">Feature flags</h2>
+        <p className="ml-settings__hint">
+          Behaviour still being tried out, defined in code and switched here. <Link to="/settings/flags">Open flags</Link>
+        </p>
+      </Card>
 
       {settings.data ? (
         <>

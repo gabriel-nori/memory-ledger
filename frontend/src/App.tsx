@@ -6,6 +6,7 @@ import { MapSection } from "@/features/map/MapSection";
 import { DashboardSection } from "@/features/dashboard/DashboardSection";
 import { SkillsSection } from "@/features/skills/SkillsSection";
 import { SettingsSection } from "@/features/settings/SettingsSection";
+import { FlagsPage } from "@/features/settings/FlagsPage";
 import { PeopleSection } from "@/features/people/PeopleSection";
 import { CreateLauncher } from "@/features/create/CreateLauncher";
 import { ApiDocsSection } from "@/features/apidocs/ApiDocsSection";
@@ -56,6 +57,7 @@ export function App() {
               }
             />
             <Route path="/settings" element={<SettingsSection />} />
+            <Route path="/settings/flags" element={<FlagsPage />} />
             <Route path="/api-docs" element={<ApiDocsSection />} />
             {/* Anything else is a stale bookmark, not a 404 page worth writing. */}
             <Route path="*" element={<Navigate to="/map" replace />} />

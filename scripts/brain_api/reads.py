@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 import agent_commands
 import agents
+import flags
 import b2b
 import documents
 import brain_query
@@ -272,6 +273,12 @@ def b2b_thread(peer: str = Query("", description="The peer's user id."),
                         "connector offers now (an Ollama host is asked for its own).")
 def agents_status():
     return agents.status_payload()
+
+
+@router.get("/flags", tags=["settings"], summary="Feature flags and whether each is on",
+            description="The flags defined in `scripts/flags.py`, with `<home>/flags.json` applied.")
+def flags_list():
+    return {"ok": True, "flags": flags.listing()}
 
 
 @router.get("/agent-commands", tags=["agents"], summary="Agents: the slash commands and the plugins",

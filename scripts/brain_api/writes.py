@@ -24,6 +24,7 @@ import _platform
 import agent_commands
 import agent_panel
 import agents
+import flags
 import b2b
 import custom_trigger
 import documents
@@ -911,6 +912,11 @@ def agent_config(data: m.AgentConfig = body(m.AgentConfig)):
     if res.get("ok"):
         res = agents.status_payload()
     return reply(res)
+
+
+@router.post("/flag", tags=["settings"], summary="Turn a feature flag on or off")
+def flag_set(data: m.FlagSet = body(m.FlagSet)):
+    return reply(flags.set_flag(clip(data.name, 80), bool(data.enabled)))
 
 
 @router.post("/voice-config", tags=["voice"], summary="Change the voice settings",
