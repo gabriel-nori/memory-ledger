@@ -366,17 +366,23 @@ def _recipient(authorization: str) -> str | JSONResponse:
 
 
 @app.post("/files", summary="Leave a sealed file", response_model=None)
-async def post_files(request: Request, id: str = "",
-                     sha256: str = "") -> JSONResponse | dict[str, Any]:
+async def post_files(request: Request, id: str = "", sha256: str = "",
+                     authorization: str = Header(default="")) -> JSONResponse | dict[str, Any]:
     """The body is the sealed file, raw bytes. Query: `id` (32 hex, chosen by the
     sender so a retry is the same file), `from`, `to`, and `sha256` (hex) of the
-    body. Refused, never cut, when over `FILE_MAX` (413) or when it would take
+    body. The caller's retrieval token must be `from`'s (401 / 403), so nobody fills
+    another sender's name or a recipient's quota without logging in. Refused, never cut, when over `FILE_MAX` (413) or when it would take
     the recipient past `QUOTA_BYTES` (507), the relay past `TOTAL_BYTES` (507), or
     when `UPLOADS_MAX` uploads are already running (503)."""
+    who = _recipient(authorization)
+    if isinstance(who, JSONResponse):
+        return who
     q = request.query_params
     sender, to = q.get("from", ""), q.get("to", "")
     if not (ID_RE.fullmatch(sender) and ID_RE.fullmatch(to)):
         return _err(400, "from and to must be user ids (X25519 public keys)")
+    if who != sender:
+        return _err(403, "from must be the id this token was issued to")
     if not MSG_ID_RE.fullmatch(id) or not SHA256_RE.fullmatch(sha256):
         return _err(400, "id must be 32 hex characters and sha256 64")
     declared = request.headers.get("content-length", "")

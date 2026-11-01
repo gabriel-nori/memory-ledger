@@ -577,15 +577,15 @@ def _authed(cfg: dict[str, Any], broker: dict[str, Any], method: str, path: str,
 
 
 def _authed_raw(cfg: dict[str, Any], broker: dict[str, Any], method: str,
-                path: str) -> tuple[bytes, dict[str, str]]:
-    """`_authed` for a raw answer."""
+                path: str, data: bytes | None = None) -> tuple[bytes, dict[str, str]]:
+    """`_authed` for a raw answer (and, for an upload, a raw body)."""
     tok = login(cfg, broker)
     try:
-        return _call_raw(method, broker["url"] + path, None, tok)
+        return _call_raw(method, broker["url"] + path, data, tok)
     except B2BError as e:
         if getattr(e, "status", 0) != 401:
             raise
-    return _call_raw(method, broker["url"] + path, None, login(cfg, broker, renew=True))
+    return _call_raw(method, broker["url"] + path, data, login(cfg, broker, renew=True))
 
 
 def check_broker(broker_id: str) -> dict[str, Any]:
@@ -917,7 +917,9 @@ def deliver_staged(cfg: dict[str, Any], con: sqlite3.Connection,
     try:
         meta = json.loads((sent_dir(row["peer_id"], msg_id) / "message.json")
                           .read_text(encoding="utf-8"))
-        zipped = (sent_dir(row["peer_id"], msg_id) / "attachments.zip").read_bytes()
+        zip_path = sent_dir(row["peer_id"], msg_id) / "attachments.zip"
+        if not zip_path.is_file():
+            raise OSError("attachments.zip is missing")
     except (OSError, ValueError, B2BError) as e:
         return _mark_failed(con, msg_id, f"the staged files are unreadable: {e}")
     broker = get_broker(cfg, row["broker_id"])
@@ -927,21 +929,25 @@ def deliver_staged(cfg: dict[str, Any], con: sqlite3.Connection,
     f = meta["file"]
     c = _crypto()
     try:
-        blob = c.seal_file(c.unb64(f["key"]), c.unb64(f["nonce"]), f["id"], zipped)
-        sha = hashlib.sha256(blob).hexdigest()
         me = c.user_id_of(private_key(cfg))
         # Only the message failed last time: the relay still holds the file (it keeps one for
-        # days), so a retry does not send up to 50 MB again.
-        if time.time() - float(meta.get("uploaded_at") or 0) > UPLOAD_REUSE_S:
-            _call_raw("POST", f"{broker['url']}/files?id={f['id']}&from={me}"
-                              f"&to={row['peer_id']}&sha256={sha}", blob)
-            meta["uploaded_at"] = time.time()
+        # days), so a retry neither sends up to 50 MB again nor reads and seals it again.
+        if (time.time() - float(meta.get("uploaded_at") or 0) > UPLOAD_REUSE_S
+                or not meta.get("uploaded_sha")):
+            blob = c.seal_file(c.unb64(f["key"]), c.unb64(f["nonce"]), f["id"],
+                               zip_path.read_bytes())
+            sha = hashlib.sha256(blob).hexdigest()
+            _authed_raw(cfg, broker, "POST", f"/files?id={f['id']}&from={me}"
+                                             f"&to={row['peer_id']}&sha256={sha}", blob)
+            meta.update(uploaded_at=time.time(), uploaded_sha=sha, uploaded_size=len(blob))
+            del blob
             _write_private(sent_dir(row["peer_id"], msg_id) / "message.json",
                            json.dumps(meta, indent=2).encode("utf-8"))
+        sha, size = meta["uploaded_sha"], int(meta["uploaded_size"])
         env = c.seal(private_key(cfg), row["peer_id"], {
             "text": meta["text"], "sent_at": meta["sent_at"], "human": bool(meta["human"]),
             "files": [{"id": f["id"], "key": f["key"], "nonce": f["nonce"], "sha256": sha,
-                       "size": len(blob), "names": f["names"]}]}, msg_id=msg_id)
+                       "size": size, "names": f["names"]}]}, msg_id=msg_id)
         try:
             got = _call("POST", broker["url"] + "/messages",
                         {"from": env["from"], "to": row["peer_id"], "envelope": env})
@@ -1102,14 +1108,37 @@ def download_attachment(cfg: dict[str, Any], con: sqlite3.Connection,
     return {"ok": True, "dir": str(dest), "files": written}
 
 
-def retry_attachments(cfg: dict[str, Any], con: sqlite3.Connection) -> list[str]:
-    """One more try at every attachment still pending; the ids that arrived."""
+def retry_attachments(cfg: dict[str, Any], con: sqlite3.Connection,
+                      dispatch: Callable[[str], None] | None = None) -> list[str]:
+    """One more try at every attachment still pending; the ids that arrived. The request
+    that carried the message has already run by now, so each late arrival becomes a
+    follow-up request of its own (queued like any message from an allowed sender)."""
     got = []
     for r in con.execute("SELECT file_id FROM b2b_attachment WHERE state='pending' "
                          "ORDER BY received_at").fetchall():
-        if download_attachment(cfg, con, r["file_id"]).get("ok"):
+        res = download_attachment(cfg, con, r["file_id"])
+        if res.get("ok"):
             got.append(r["file_id"])
+            _late_arrival(cfg, con, r["file_id"], res["dir"], dispatch)
     return got
+
+
+def _late_arrival(cfg: dict[str, Any], con: sqlite3.Connection, file_id: str, dest: str,
+                  dispatch: Callable[[str], None] | None) -> None:
+    """Tell the agent an attachment its message announced has now been taken."""
+    row = con.execute("SELECT * FROM b2b_attachment WHERE file_id=?", (file_id,)).fetchone()
+    broker = get_broker(cfg, row["broker_id"]) if row else None
+    if not broker or not is_allowed(con, row["peer_id"]):
+        return
+    names = ", ".join(str(n) for n in json.loads(row["names"] or "[]"))
+    msg = {"id": f"{row['message_id']}:files", "from": row["peer_id"], "sent_at": trigger.now_iso(),
+           "text": f"[attachments of your earlier message {row['message_id']} have now been "
+                   f"downloaded to {dest}: {names}]"}
+    ev = message_event(msg, get_peer(con, row["peer_id"]), cfg, broker)
+    ev["meta"]["vars"]["b2b_attachments_dir"] = dest
+    req = trigger._new_request(con, ev, "queued", "b2b: attachment arrived late")
+    if req and dispatch:
+        dispatch(req["id"])
 
 
 def refuse_sender(cfg: dict[str, Any], broker: dict[str, Any], sender: str) -> bool:
@@ -1214,7 +1243,7 @@ def poll(cfg: dict[str, Any] | None = None,
         except B2BError as e:
             errors[broker["id"]] = str(e)
     flushed = flush_staged(cfg, con)
-    out["downloaded"] = retry_attachments(cfg, con)
+    out["downloaded"] = retry_attachments(cfg, con, dispatch)
     res: dict[str, Any] = {"ok": not errors, "received": len(out["queued"]) + len(out["blocked"]),
                            **out, "errors": errors, "staged": flushed}
     if errors:

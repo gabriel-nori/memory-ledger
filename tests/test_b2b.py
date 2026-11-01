@@ -342,13 +342,23 @@ def file_call(base: str, sender: Client, to: str, data: bytes, fid: str | None =
     """Upload `data` as a file from `sender` to `to`."""
     fid = fid or uuid.uuid4().hex
     sha = sha or hashlib.sha256(data).hexdigest()
+    if not sender.token:
+        sender.login()
     st, body, _ = raw(base, "POST", f"/files?id={fid}&from={sender.id}&to={to}&sha256={sha}",
-                      data)
+                      data, token=sender.token)
     return st, {**json.loads(body or b"{}"), "_id": fid}
 
 
 class TestRelayFiles:
     """Sealed files on the relay: upload, download, delete, quota, refusal."""
+
+    def test_an_upload_needs_the_senders_own_token(self, base):
+        a, b, c = Client(base), Client(base), Client(base)
+        fid, sha = uuid.uuid4().hex, hashlib.sha256(b"x").hexdigest()
+        path = f"/files?id={fid}&from={a.id}&to={b.id}&sha256={sha}"
+        assert raw(base, "POST", path, b"x")[0] == 401
+        c.login()
+        assert raw(base, "POST", path, b"x", token=c.token)[0] == 403
 
     def test_the_recipient_downloads_then_deletes_it(self, base):
         a, b = Client(base), Client(base)
@@ -980,6 +990,31 @@ class TestBrainFiles:
         assert row["state"] == "done" and row["key"] == ""
         assert raw(brain.base, "GET", f"/files/{row['file_id']}",
                    token=self._brain_token(brain))[0] == 404
+
+    def test_a_staged_retry_does_not_read_seal_or_send_the_file_again(self, brain, monkeypatch):
+        d = b2b.sent_dir(brain.peer.id, brain.sent_id)
+        meta = json.loads((d / "message.json").read_text(encoding=UTF8))
+        assert meta["uploaded_sha"] and meta["uploaded_size"]
+        brain.con.execute("UPDATE b2b_sent SET status='staged' WHERE id=?", (brain.sent_id,))
+        brain.con.commit()
+
+        def forbidden(*a, **k):
+            raise AssertionError("the file was sealed or sent again")
+        monkeypatch.setattr(bc, "seal_file", forbidden)
+        monkeypatch.setattr(b2b, "_authed_raw", forbidden)
+        res = b2b.deliver_staged(b2b.load_config(), brain.con, brain.sent_id)
+        assert res.get("ok") and res["staged"] is False, res
+
+    def test_an_attachment_that_arrives_late_reaches_the_agent_as_a_follow_up(self, brain):
+        ref = self._upload(brain, brain.peer, self._zip({"late.txt": b"hi"}))
+        cfg = b2b.load_config()
+        msg = {"id": uuid.uuid4().hex, "from": brain.peer.id}
+        b2b._note_attachment(brain.con, b2b.get_broker(cfg, BROKER_A), msg, ref)   # still pending
+        queued: list[str] = []
+        assert b2b.retry_attachments(cfg, brain.con, queued.append) == [ref["id"]]
+        [req] = [trigger.get_request(brain.con, r) for r in queued]
+        assert req["event_id"] == msg["id"] + ":files" and req["status"] == "queued"
+        assert ref["names"][0] in req["text"] and "earlier message" in req["text"]
 
     @pytest.mark.parametrize("label,members", [
         ("zip-slip", {"../evil.txt": b"x"}),
