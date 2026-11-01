@@ -188,6 +188,7 @@ def ensure_ui(auto: bool = True, force: bool = False) -> str:
         UI_PROBLEM = f"{reason}, and --no-build was passed"
         return UI_PROBLEM
 
+    _platform.use_portable_node()
     npm = shutil.which("npm")
     if not npm:
         UI_PROBLEM = (f"{reason}, and npm is not on PATH. "

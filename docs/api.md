@@ -133,6 +133,8 @@ Every response is `Cache-Control: no-store`.
 | `/api/people` | every person node with the spellings it answers to, for the People section and the assignee picker |
 | `/api/person-duplicates` | groups of person nodes that look like one human, with the canonical pick. Name matching over every alias — **no model call** |
 | `/api/capture` | whether the ledger is recording, and which switch decided it (`env_off` matters: `$MEMORY_LEDGER_OFF` outranks the marker) |
+| `/api/health` | `{"ok": true}` as soon as the server is up; reads nothing. What the desktop launcher waits for |
+| `/api/update` | the running version, the latest GitHub release, and whether this install can take it (cached 8 hours; `?force=true` skips the cache). See [Updates](#updates) |
 | `/api/doctor` | the health check as JSON — the same report `scripts/doctor.py` prints |
 | `/api/consolidate-preview?keep_days=N` | what a consolidation run **would** change. A read: it writes nothing |
 | `/api/backups` | the snapshots consolidation leaves behind, each with when it expires |
@@ -207,6 +209,7 @@ since the dashboard lists tasks and a kind with none would be dead UI.
 | `/api/complete` | `{id, note?}` | moves to the archive; never deletes |
 | `/api/set-status` | `{id, status, waiting_on?}` | `status` must be one of `graph.TASK_STATUSES` |
 | `/api/set-assignee` | `{id, assignee}` | |
+| `/api/update/apply` | `{}` | downloads the latest release zip, verifies its SHA-256, swaps the code in; the server restarts itself. Refused on a git checkout |
 | `/api/update-node` | `{id, title?, body?, props?}` | empty `title` is rejected |
 | `/api/link` | `{src, dst, rel}` | |
 | `/api/unlink` | `{src, dst, rel}` | |
@@ -586,3 +589,18 @@ no install step. So it owns its environment:
 
 On Debian and Ubuntu, `python -m venv` needs the `python3-venv` package; the
 server says so if it is missing.
+
+
+## Updates
+
+`brain_api/updates.py` asks the Releases of `gabriel-nori/memory-ledger` for the
+latest tag and compares it with `version` in `.claude-plugin/plugin.json`. The UI
+asks on load and every 8 hours and shows a banner with **Update** and **Later**
+(Later hides that tag only). `POST /api/update/apply` downloads
+`memory-ledger-<tag>.zip`, checks it against the `.sha256` published beside it
+(a mismatch changes nothing), refuses paths that escape the archive, swaps the
+top-level entries of the zip into the checkout (never `.git`; a failed swap puts
+the old ones back) and leaves the restart to `serve.py`, which re-execs when its
+own files change; the page reloads when the boot id changes. The brain in
+`~/.second_brain` is never touched. A git clone is told to `git pull` instead.
+Releases are built by `.github/workflows/release.yml` on a `v*` tag.

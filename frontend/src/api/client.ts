@@ -188,6 +188,9 @@ export const api = {
     get<import("./types").B2BThread>("/api/b2b-thread", before ? { peer, before } : { peer }, signal),
   capture: (signal?: AbortSignal) =>
     get<import("./types").CaptureState>("/api/capture", undefined, signal),
+  update: (signal?: AbortSignal) =>
+    get<import("./types").UpdateInfo>("/api/update", undefined, signal),
+  updateApply: () => post<Envelope & { installed?: string }>("/api/update/apply"),
   doctor: (signal?: AbortSignal) =>
     get<import("./types").DoctorReport>("/api/doctor", undefined, signal),
   backups: (signal?: AbortSignal) =>
