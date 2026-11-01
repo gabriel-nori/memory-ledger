@@ -188,10 +188,18 @@ def ensure_ui(auto: bool = True, force: bool = False) -> str:
         UI_PROBLEM = f"{reason}, and --no-build was passed"
         return UI_PROBLEM
 
+    _platform.use_portable_node()
+    if not shutil.which("npm"):
+        import _node
+        print("  no npm on PATH: downloading a portable Node.js", flush=True)
+        why = _node.portable_node()
+        if why:
+            print(f"  portable Node.js failed: {why}", flush=True)
+        _platform.use_portable_node()
     npm = shutil.which("npm")
     if not npm:
         UI_PROBLEM = (f"{reason}, and npm is not on PATH. "
-                      "Install Node.js to build the page.")
+                      "The portable Node.js could not be downloaded either; install Node.js to build the page.")
         print(f"  UI not built: {UI_PROBLEM}", flush=True)
         return UI_PROBLEM
 
@@ -322,9 +330,7 @@ def _enter_server_env() -> None:
     py = server_python()
     if _in(venv_dir()):
         return
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os.execv(str(py), [str(py), str(Path(__file__).resolve()), *sys.argv[1:]])
+    _platform.reexec([str(py), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 # ---------------------------------------------------------------------------
@@ -497,10 +503,7 @@ def main():
         print("\nstopped.")
         return
     os.environ[RESPAWN_ENV] = "1"
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()),
-                              *sys.argv[1:]])
+    _platform.reexec([sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 if __name__ == "__main__":

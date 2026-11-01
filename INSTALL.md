@@ -28,6 +28,28 @@ Nothing else. The engine, the CLI and the hooks have zero third-party
 dependencies. The optional web UI's server does (FastAPI, uvicorn), and installs
 them itself into its own venv the first time you start it — see below.
 
+### One click: `install.sh` / `install.ps1`
+
+From a release zip or a clone, with or without Python on the machine:
+
+```bash
+./install.sh                                                 # macOS, Linux
+powershell -ExecutionPolicy Bypass -File install.ps1         # Windows
+```
+
+It looks for Python 3.11+ (the version pinned in `.python-version` is tried
+first). If there is none it installs [`uv`](https://astral.sh/uv) and the pinned
+Python into `~/.second_brain` (nothing system-wide, nothing in your PATH), then
+runs `scripts/setup.py --launcher`. Setup builds the venv, builds the UI (a
+release already ships it; from git it downloads a portable Node LTS, checked
+against nodejs.org's SHA-256, when `npm` is missing), creates the brain, and puts
+**Memory Ledger** on the Desktop (`.command` on macOS, `.lnk` on Windows,
+`.desktop` on Linux). Clicking it runs `scripts/launcher.py start`: it starts
+`serve.py`, waits for `/api/health` and opens the page. `launcher.py stop` shuts
+it down; `status` and `install` (re-make the Desktop icon) also exist. The log is
+`<home>/logs/serve.log`. A new release shows up as a banner in the page: see
+[Updates](docs/api.md#updates).
+
 ### One command to set a machine up: `scripts/setup.py`
 
 From a clone, on macOS, Linux or Windows:

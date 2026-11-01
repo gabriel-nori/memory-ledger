@@ -24,7 +24,6 @@ SwiftTerm's sources — a pinned commit, cloned once — into
 from __future__ import annotations
 
 import argparse
-import fcntl
 import shlex
 import shutil
 import subprocess
@@ -110,6 +109,7 @@ def panel_binary() -> tuple[Path | None, str]:
         return exe, ""
     if not shutil.which("swiftc"):
         return None, "needs the Xcode command line tools: xcode-select --install"
+    import fcntl    # POSIX only; the box is macOS-only, and Windows must still import this module
     build_dir().mkdir(parents=True, exist_ok=True)
     with open(build_dir() / "agent-terminal.lock", "w", encoding="utf-8") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

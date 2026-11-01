@@ -97,7 +97,8 @@ class TestBuild:
 
 
 class TestLaunch:
-    def test_a_missing_folder_is_refused(self, brain_home):
+    def test_a_missing_folder_is_refused(self, brain_home, monkeypatch):
+        monkeypatch.setattr(agent_panel.sys, "platform", "darwin")
         res = agent_panel.launch(str(brain_home / "nope"))
         assert not res["ok"] and "no folder" in res["error"]
 

@@ -2,17 +2,18 @@
 """memory-ledger setup — everything a machine needs, on macOS, Linux or Windows.
 
     python3 scripts/setup.py [--voice] [--piper] [--stt-model medium]
-                             [--skip-venv] [--skip-ui] [--json]
+                             [--launcher] [--skip-venv] [--skip-ui] [--json]
 
 `scripts/setup.sh` and `scripts/setup.ps1` are thin wrappers that find a Python
 and run this. Every step is idempotent: run it again after an upgrade and it
 does only what is missing.
 
-1. Python: 3.10 or newer, the one running this.
+1. Python: 3.11 or newer, the one running this.
 2. The server's venv (what `serve.py` builds on first start), from
    `scripts/requirements-server.txt`.
-3. The UI: `npm ci` and `npm run build` in `frontend/` (skipped, with the
-   reason, when npm is not installed: the API runs without it).
+3. The UI: `npm ci` and `npm run build` in `frontend/` (a portable Node LTS is
+   downloaded and checked against nodejs.org's SHA-256 when npm is missing; skipped
+   when the bundle is already built, as in a release).
 4. Voice, with `--voice`: a separate venv (`_platform.voice_venv()`) with
    faster-whisper, and the STT model (`--stt-model`, default `medium`)
    downloaded into it once; `--piper` adds Piper there too. Without it, the
@@ -38,10 +39,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import _node  # noqa: E402
 import _platform  # noqa: E402
 import _textio  # noqa: E402
 
-MIN_PY = (3, 10)
+MIN_PY = (3, 11)
 VOICE_PACKAGES = ["faster-whisper", "numpy"]
 
 steps: list[dict] = []
@@ -121,12 +123,25 @@ def server_venv() -> None:
 
 def ui() -> None:
     import serve
-    if not shutil.which("npm"):
-        step("ui", None, "npm is not on PATH: install Node.js 20+ for the page; the API runs without it")
+    if (serve.INDEX.exists() and not serve.ui_stale()):
+        step("ui", True, f"already built in {serve.DIST}")
         return
+    _platform.use_portable_node()
+    if not shutil.which("npm"):
+        why = _node.portable_node()
+        if why:
+            step("ui", None, f"no npm and no portable Node ({why}); the API runs without the page")
+            return
+        _platform.use_portable_node()
     with stdout_to_stderr():
         why = serve.ensure_ui(auto=True)
     step("ui", not why, why or f"built in {serve.DIST}")
+
+
+def launcher() -> None:
+    import launcher as launcher_mod
+    ok, detail = launcher_mod.install()
+    step("launcher", ok, detail)
 
 
 def voice_venv(stt_model: str, piper: bool) -> None:
@@ -160,7 +175,8 @@ def tts_report() -> None:
          f"{eng.name}" + (f" — {why}" if why else f", {len(eng.voices())} voice(s)"))
     ff = shutil.which("ffmpeg")
     if eng.name == "say":
-        step("ffmpeg", bool(ff), ff or "needed by `say` to write WAV: brew install ffmpeg")
+        # optional like the engine itself: without it `say` cannot write WAV, but the brain works
+        step("ffmpeg", True if ff else None, ff or "needed by `say` to write WAV: brew install ffmpeg")
     else:
         step("ffmpeg", True if ff else None, ff or f"not needed by {eng.name}")
 
@@ -204,6 +220,8 @@ def main(argv=None) -> int:
     ap.add_argument("--piper", action="store_true", help="with --voice: also install Piper (TTS on any OS)")
     ap.add_argument("--stt-model", default=os.environ.get("BRAIN_STT_MODEL", "medium"),
                     help="faster-whisper model to download (default medium)")
+    ap.add_argument("--launcher", action="store_true",
+                    help="also put a launcher on the Desktop that starts everything")
     ap.add_argument("--skip-venv", action="store_true", help="do not build the server's venv")
     ap.add_argument("--skip-ui", action="store_true", help="do not build the UI")
     ap.add_argument("--json", action="store_true", help="print one JSON report instead of progress")
@@ -226,6 +244,8 @@ def main(argv=None) -> int:
         stt_report()
         brain()
         doctor()
+        if a.launcher:
+            launcher()
     failed = [s["step"] for s in steps if s["ok"] is False]
     if a.json:
         print(json.dumps({"ok": not failed, "platform": sys.platform, "steps": steps,

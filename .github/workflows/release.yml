@@ -1,0 +1,59 @@
+name: Release
+
+# A tag `vX.Y.Z` publishes memory-ledger-vX.Y.Z.zip and its .sha256 as a GitHub
+# Release. The zip is the source tree plus the built UI (frontend/dist, which git
+# does not track), so a machine that installs from it needs no Node: this is what
+# install.sh / install.ps1 and the in-app updater (scripts/brain_api/updates.py)
+# fetch. The STT/TTS models are not in it; they download on first use.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag matches the plugin version
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")"
+          if [ "$want" != "$have" ]; then
+            echo "tag $GITHUB_REF_NAME but .claude-plugin/plugin.json says $have: bump it first"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the UI
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Pack
+        run: |
+          name="memory-ledger-${GITHUB_REF_NAME}"
+          mkdir -p "dist-release/$name"
+          git archive HEAD | tar -x -C "dist-release/$name"
+          cp -r frontend/dist "dist-release/$name/frontend/dist"
+          (cd dist-release && zip -qr "../$name.zip" "$name")
+          sha256sum "$name.zip" > "$name.zip.sha256"
+          cat "$name.zip.sha256"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="memory-ledger-${GITHUB_REF_NAME}"
+          gh release create "$GITHUB_REF_NAME" "$name.zip" "$name.zip.sha256" \
+            --title "$GITHUB_REF_NAME" --generate-notes

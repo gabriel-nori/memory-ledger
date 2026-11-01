@@ -1390,8 +1390,7 @@ def _ensure_crypto_env() -> None:
     import serve
     py = serve.server_python()
     os.environ["MEMORY_LEDGER_B2B_REEXEC"] = "1"
-    sys.stdout.flush()
-    os.execv(str(py), [str(py), str(Path(__file__).resolve()), *sys.argv[1:]])
+    _platform.reexec([str(py), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 def main(argv: list[str] | None = None) -> int:

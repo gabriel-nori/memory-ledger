@@ -177,3 +177,19 @@ def test_a_relative_symlink_when_the_two_are_siblings(linked):
     if how != "symlink":
         pytest.skip("not a symlink on this platform")
     assert os.readlink(home / "canonical") == "legacy"
+
+
+# ------------------------------------------------------------- re-exec
+def test_reexec_keeps_the_pid_that_was_started_and_hands_back_its_exit_code(tmp_path: Path):
+    """On Windows `os.execv` exits the old process at once while the new one runs
+    on, so a caller that waits on the pid sees "done" for a server still alive."""
+    script = tmp_path / "again.py"
+    script.write_text(
+        "import sys; sys.path.insert(0, %r)\nimport _platform\n"
+        "if len(sys.argv) > 1: sys.exit(7)\n"
+        "_platform.reexec([sys.executable, __file__, 'second'])\n" % str(Path(_platform.__file__).parent),
+        encoding=UTF8)
+    started = time.time()
+    done = subprocess.run([sys.executable, str(script)], check=False, timeout=60)
+    assert done.returncode == 7
+    assert time.time() - started < 60

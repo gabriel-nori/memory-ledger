@@ -126,6 +126,30 @@ def voice_venv() -> Path:
     return cache_dir() / "memory-ledger" / "voice"
 
 
+def node_home() -> Path:
+    """Where `scripts/setup.py` unpacks a portable Node.js when the machine has none."""
+    return cache_dir() / "memory-ledger" / "node"
+
+
+def node_bin_dir() -> Path | None:
+    """The directory holding npm in the portable Node, or None when there is none."""
+    root = node_home()
+    for d in (root / "current", root / "current" / "bin"):
+        if (d / ("npm.cmd" if WINDOWS else "npm")).exists():
+            return d
+    return None
+
+
+def use_portable_node() -> None:
+    """Put the portable Node first on PATH for this process and its children,
+    unless a system npm is already there."""
+    if shutil.which("npm"):
+        return
+    d = node_bin_dir()
+    if d:
+        os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+
+
 def python3() -> list[str]:
     """argv prefix that runs a Python 3: this interpreter, else `py -3` on
     Windows, else python3 on PATH."""
@@ -174,6 +198,26 @@ def group_kwargs() -> dict:
     if WINDOWS:
         return {"creationflags": _CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def reexec(argv: list[str]) -> None:
+    """Replace this process with `argv`, and never return.
+
+    `os.execv` does that on POSIX. On Windows it starts the new program and
+    EXITS the old process at once, so whoever holds the pid (a test, the
+    launcher, a shell) sees "done" while the real server runs on, unreachable
+    and never stopped. There the child is run and waited for, and its exit code
+    becomes ours: the pid that was started is the pid that lives.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if not WINDOWS:
+        os.execv(argv[0], argv)
+    try:
+        code = subprocess.call(argv)
+    except KeyboardInterrupt:
+        code = 130
+    os._exit(code)
 
 
 def kill_tree(proc: subprocess.Popen) -> None:
@@ -256,3 +300,22 @@ def pid_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def pid_command(pid: int) -> str | None:
+    """The command line of a running process, or None when it cannot be read."""
+    try:
+        if WINDOWS:
+            ps = powershell()
+            if not ps:
+                return None
+            cmd = [ps, "-NoProfile", "-Command",
+                   f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"]
+        else:
+            cmd = ["ps", "-p", str(int(pid)), "-o", "command="]
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
