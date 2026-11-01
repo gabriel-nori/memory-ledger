@@ -237,7 +237,8 @@ def tts_report() -> None:
          f"{eng.name}" + (f" — {why}" if why else f", {len(eng.voices())} voice(s)"))
     ff = shutil.which("ffmpeg")
     if eng.name == "say":
-        step("ffmpeg", bool(ff), ff or "needed by `say` to write WAV: brew install ffmpeg")
+        # optional like the engine itself: without it `say` cannot write WAV, but the brain works
+        step("ffmpeg", True if ff else None, ff or "needed by `say` to write WAV: brew install ffmpeg")
     else:
         step("ffmpeg", True if ff else None, ff or f"not needed by {eng.name}")
 
