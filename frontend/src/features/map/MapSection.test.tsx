@@ -185,8 +185,8 @@ describe("the node card", () => {
     renderApp(card());
     expect(await screen.findByRole("heading", { name: "Ship the new UI" })).toBeInTheDocument();
     expect(screen.getByText("task_ship-ui_a1")).toBeInTheDocument();
-    expect(screen.getByText(/← incoming \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText(/outgoing → \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/incoming \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/outgoing\s+\(1\)/)).toBeInTheDocument();
   });
 
   it("jumps to the node on the other end of a connection", async () => {
