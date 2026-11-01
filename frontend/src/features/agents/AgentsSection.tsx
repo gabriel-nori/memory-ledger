@@ -66,6 +66,8 @@ export function AgentsSection() {
   const selected = params.get("c") ?? "";
   const [q, setQ] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  // On a narrow screen the list is a collapsed rail that opens over the thread.
+  const [listOpen, setListOpen] = useState(false);
 
   const status = usePolling((signal) => api.agents(signal), { intervalMs: 60_000 });
   const voice = usePolling((signal) => api.voice(signal), { intervalMs: 60_000 });
@@ -84,7 +86,10 @@ export function AgentsSection() {
   const active = all.filter((c) => !c.hidden && matches(c));
   const hidden = all.filter((c) => c.hidden && matches(c));
 
-  const open = (id: string) => setParams(id ? { c: id } : {});
+  const open = (id: string) => {
+    setParams(id ? { c: id } : {});
+    setListOpen(false);
+  };
   const current = all.find((c) => c.id === selected);
 
   // Chats that are not on screen keep being read when asked to: a chat that is working
@@ -102,7 +107,18 @@ export function AgentsSection() {
       {convs.error ? <StatusMessage tone="error">{convs.error}</StatusMessage> : null}
       {status.data?.config._problem ? <StatusMessage tone="error">{status.data.config._problem}</StatusMessage> : null}
       <div className="ml-agents">
-        <aside className="ml-agents__side" aria-label="agent conversations">
+        <button
+          type="button"
+          className="ml-agents__rail"
+          aria-label="conversations"
+          aria-expanded={listOpen}
+          title="conversations"
+          onClick={() => setListOpen((v) => !v)}
+        >
+          <Icon name="message" />
+        </button>
+        {listOpen ? <div className="ml-agents__scrim" onClick={() => setListOpen(false)} /> : null}
+        <aside className={`ml-agents__side${listOpen ? " is-open" : ""}`} aria-label="agent conversations">
           <div className="ml-agents__tools">
             <SearchInput value={q} onChange={setQ} placeholder="search conversations" aria-label="search conversations" />
             <Button size="sm" variant="primary" onClick={() => open("")} title="Start a new conversation" disabled={!writable}>

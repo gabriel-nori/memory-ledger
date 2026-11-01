@@ -3,9 +3,35 @@
   display: grid; grid-template-columns: 300px 1fr; gap: var(--space-4);
   flex: 1; min-height: 0;
 }
+.ml-agents__rail, .ml-agents__scrim { display: none; }
 @media (max-width: 760px) {
-  .ml-agents { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .ml-agents__side { max-height: 30vh; }
+  /* The list stays on the left as a slim rail; opening it lays it over the thread. */
+  .ml-agents { grid-template-columns: 44px minmax(0, 1fr); gap: var(--space-2); position: relative; }
+  .ml-agents__rail {
+    display: flex; align-items: center; justify-content: center; align-self: start;
+    width: 44px; height: 44px; margin-top: 44px; padding: 0; cursor: pointer;
+    color: var(--fg); background: var(--panel-solid); border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .ml-agents__rail:hover { background: var(--press); }
+  .ml-agents__scrim {
+    display: block; position: fixed; inset: 0; z-index: var(--z-scrim);
+    background: #0006; animation: ml-fade var(--t-move) var(--ease-spring);
+  }
+  .ml-agents__side {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: var(--z-drawer);
+    width: min(320px, 86vw); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-panel);
+    transform: translateX(-110%); visibility: hidden;
+    transition: transform var(--t-move) var(--ease-spring), visibility 0s var(--t-move);
+  }
+  .ml-agents__side.is-open { transform: none; visibility: visible; transition-delay: 0s; }
+  .ml-agents__main { grid-column: 2; }
+  .ml-agents__item { max-width: 92%; }
+  .ml-agents__head { padding: var(--space-2) var(--space-3); }
+  .ml-agents__actions .ml-search { width: 100%; }
+  .ml-agents__thread { padding: var(--space-3); }
+  .ml-agents__compose { padding: var(--space-2) var(--space-3); }
 }
 .ml-agents__side, .ml-agents__main {
   border: 0.5px solid var(--border); border-radius: var(--radius-lg);

@@ -1,4 +1,4 @@
-.ml-search { position: relative; flex: 1; min-width: 160px; display: flex; }
+.ml-search { position: relative; flex: 1; min-width: min(160px, 100%); display: flex; }
 .ml-search__input {
   flex: 1; min-width: 80px; background: var(--bg-sunken); border: 0;
   box-shadow: inset 0 0 0 0.5px var(--border);
