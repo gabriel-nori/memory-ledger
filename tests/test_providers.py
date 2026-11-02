@@ -44,7 +44,7 @@ def cli(module_brain_home: Path, monkeypatch):
     monkeypatch.setattr(flags, "enabled", lambda n: True if n == "ai_providers" else False)
 
     def calls():
-        return [json.loads(x) for x in log.read_text().splitlines()]
+        return [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
     return exe, calls
 
 
@@ -132,3 +132,63 @@ def test_a_key_with_spaces_is_refused():
 def test_detect_reports_a_missing_cli():
     assert providers.detect("gemini", "definitely-not-installed-cli")["installed"] is False
     assert providers.install_command("gemini") == "npm install -g @google/gemini-cli"
+
+
+def test_ping_reports_the_answer_and_masks_the_key(cli, monkeypatch):
+    exe, calls = cli
+    providers.save_key("gemini", "sekret-123")
+    try:
+        assert providers.ping("gemini", str(exe)) == {"ok": True, "answer": "fake answer"}
+        assert "ok" in calls()[-1]["stdin"]
+        monkeypatch.setenv("FAKE_CLI_MODE", "fail")
+        res = providers.ping("gemini", str(exe))
+        assert not res["ok"] and "sekret-123" not in res["error"] and "***" in res["error"]
+    finally:
+        providers.delete_key("gemini")
+
+
+def test_ping_needs_an_installed_cli():
+    res = providers.ping("codex", "definitely-not-installed-cli")
+    assert not res["ok"] and "not installed" in res["error"]
+
+
+def test_install_runs_npm_and_reports_a_failure(module_brain_home, monkeypatch):
+    log = module_brain_home / "npm.log"
+    npm = make_exe(module_brain_home / "fake-npm",
+                   '#!/usr/bin/env python3\nimport os, sys\n'
+                   f'open({str(log)!r}, "w").write(" ".join(sys.argv[1:]))\n'
+                   'sys.stderr.write("EACCES"); sys.exit(int(os.environ.get("NPM_EXIT", "0")))\n')
+    real = providers._platform.resolve_bin
+    monkeypatch.setattr(providers._platform, "resolve_bin",
+                        lambda n: str(npm) if n == "npm" else real(n))
+    ok = providers.install("gemini")
+    assert ok["ok"] and log.read_text(encoding="utf-8") == "install -g @google/gemini-cli"
+    monkeypatch.setenv("NPM_EXIT", "1")
+    bad = providers.install("gemini")
+    assert not bad["ok"] and "EACCES" in bad["error"]
+    assert providers.install("ollama")["ok"] is False
+
+
+def test_the_wizard_routes(module_brain_home, monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from brain_api.app import create_app
+    client = TestClient(create_app(tmp_path, "no ui"))
+    monkeypatch.setattr(flags, "enabled", lambda n: False)
+    kinds = [p["kind"] for p in client.get("/api/agent-providers").json()["providers"]]
+    assert kinds == ["claude", "ollama"]                       # Gemini and Codex wait for the flag
+    assert client.post("/api/agent-provider-key", json={"kind": "gemini", "key": "k"}).status_code == 400
+    monkeypatch.setattr(flags, "enabled", lambda n: n == "ai_providers")
+    kinds = [p["kind"] for p in client.get("/api/agent-providers").json()["providers"]]
+    assert "gemini" in kinds and "codex" in kinds
+    r = client.post("/api/agent-provider-key", json={"kind": "codex", "key": "key-xyz"})
+    row = next(p for p in r.json()["providers"] if p["kind"] == "codex")
+    assert row["has_key"] and "key-xyz" not in r.text
+    r = client.post("/api/agent-provider-key", json={"kind": "codex", "remove": True})
+    assert not next(p for p in r.json()["providers"] if p["kind"] == "codex")["has_key"]
+    r = client.post("/api/agent-provider-install", json={"kind": "codex"})
+    assert r.status_code == 400 and "confirm" in r.json()["error"]
+    assert r.json()["command"] == "npm install -g @openai/codex"
+    r = client.post("/api/agent-config", json={"delegation": {"enabled": True, "targets": ["codex"]}})
+    assert r.json()["config"]["delegation"]["targets"] == ["codex"]

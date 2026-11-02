@@ -48,6 +48,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _platform  # noqa: E402
 import _textio  # noqa: E402
+import delegation  # noqa: E402
 import documents  # noqa: E402
 import flags  # noqa: E402
 import graph  # noqa: E402
@@ -84,7 +85,8 @@ SCRIPT = Path(__file__).resolve()
 THREAD_CMD = f"python3 {SCRIPT} thread"
 GRAPH_CMD = f"python3 {SCRIPT.parent / 'graph.py'}"
 QUERY_CMD = f"python3 {SCRIPT.parent / 'brain_query.py'}"
-BRAIN_CMDS = (THREAD_CMD, GRAPH_CMD, QUERY_CMD)
+DELEGATE_CMD = f"python3 {SCRIPT} delegate"
+BRAIN_CMDS = (THREAD_CMD, GRAPH_CMD, QUERY_CMD, DELEGATE_CMD)
 # Read-only Claude may also look things up through the person's connectors.
 # Only these, by exact name: anything that posts, edits, labels or deletes is
 # left out, and `dontAsk` denies it.
@@ -116,6 +118,7 @@ DEFAULTS: dict[str, Any] = {
     "recall_limit": 8,
     "recall_budget": 2600,
     "max_concurrent": 2,
+    "delegation": delegation.DEFAULTS,
     "connectors": [
         {"id": "claude", "name": "Claude", "kind": "claude", "enabled": True,
          "bin": "claude", "models": CLAUDE_MODELS, "default_model": "claude-sonnet-5-5",
@@ -212,6 +215,7 @@ def load_config() -> dict[str, Any]:
     for k, v in raw.items():
         if k in DEFAULTS:
             cfg[k] = v
+    cfg["delegation"] = delegation.clean(cfg.get("delegation"))
     if not isinstance(cfg.get("connectors"), list):
         cfg["connectors"] = json.loads(json.dumps(DEFAULTS["connectors"]))
     return cfg
@@ -281,6 +285,8 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
                 cfg[key] = max(lo, min(hi, int(patch[key])))
             except (TypeError, ValueError):
                 return {"ok": False, "error": f"{key} must be a number"}
+    if "delegation" in patch:
+        cfg["delegation"] = delegation.clean(patch["delegation"])
     if "default_connector" in patch:
         cfg["default_connector"] = str(patch["default_connector"] or "")[:40]
     if cfg["default_connector"] not in {c["id"] for c in cfg["connectors"]}:
@@ -773,7 +779,8 @@ def build_turn(con: sqlite3.Connection, reply: dict[str, Any]) -> dict[str, Any]
                  f"can go on, its last line is exactly {QUESTION_MARK}.)")
     cid = reply.get("connector") or (conv or {}).get("connector") or ""
     kind = (connector(cfg, cid) or {}).get("kind", "claude")
-    system = "\n".join(x for x in (system_prompt(conv, len(history), kind),
+    handoff = delegation.prompt_section(cfg, DELEGATE_CMD, cid) if kind != "ollama" else ""
+    system = "\n".join(x for x in (system_prompt(conv, len(history), kind), handoff,
                                     voice.reply_language_instruction(question)) if x)
     return {"system": system, "prompt": "\n".join(parts),
             "context": [r["id"] for r in recalled if r.get("id")], "question": question}
@@ -1579,12 +1586,19 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     r = sub.add_parser("run")
     r.add_argument("id")
+    d = sub.add_parser("delegate", help="hand a task to a connector of another provider")
+    d.add_argument("connector")
+    d.add_argument("--task", required=True)
     t = sub.add_parser("thread", help="print a conversation's messages, oldest first")
     t.add_argument("id")
     t.add_argument("--limit", type=int, default=0, help="only the last N messages")
     a = ap.parse_args(argv)
     if a.cmd == "status":
         graph.out(status_payload())
+    elif a.cmd == "delegate":
+        res = delegation.delegate(a.connector, a.task, os.environ.get("MEMORY_LEDGER_AGENT_REPLY", ""))
+        print(res["text"] if res["ok"] else f"delegation refused or failed: {res['error']}")
+        return 0 if res["ok"] else 1
     elif a.cmd == "thread":
         print(thread_text(db(), a.id, a.limit))
     else:

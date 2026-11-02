@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import {
   agendaFixture,
   agentsFixture,
+  providersFixture,
   voiceFixture,
   agentCommandsFixture,
   agentConversationsFixture,
@@ -95,6 +96,7 @@ export const handlers = [
   http.get("/api/status", () => HttpResponse.json(statusFixture)),
   http.get("/api/trigger", () => HttpResponse.json(triggerFixture)),
   http.get("/api/agents", () => HttpResponse.json(agentsFixture)),
+  http.get("/api/agent-providers", () => HttpResponse.json(providersFixture)),
   http.get("/api/voice", () => HttpResponse.json(voiceFixture)),
   http.get("/api/agent-commands", () => HttpResponse.json(agentCommandsFixture)),
   http.get("/api/agent-conversations", () => HttpResponse.json(agentConversationsFixture)),
@@ -239,6 +241,9 @@ export const handlers = [
   write("/api/agent-cancel", (body: { id?: string }) => ok({ reply_id: body.id, was: "running" })),
   write("/api/agent-plugin", () => HttpResponse.json(agentCommandsFixture)),
   write("/api/agent-config", () => HttpResponse.json(agentsFixture)),
+  write("/api/agent-provider-key", () => HttpResponse.json(providersFixture)),
+  write("/api/agent-provider-install", () => ok({ command: "npm install -g @google/gemini-cli" })),
+  write("/api/agent-provider-test", () => ok({ answer: "ok" })),
   write("/api/voice-config", () => HttpResponse.json(voiceFixture)),
   write("/api/voice-translate", (body: { text?: string; target?: string }) =>
     ok({ text: `[${body.target}] ${body.text}`, translated: true, language: body.target }),

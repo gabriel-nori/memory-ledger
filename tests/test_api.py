@@ -50,7 +50,7 @@ GET_ROUTES = [
     "/api/suggest-links", "/api/search", "/api/trigger", "/api/trigger-request", "/api/trigger-people", "/api/b2b",
     "/api/custom-triggers", "/api/custom-trigger",
     "/api/b2b-conversations", "/api/b2b-thread",
-    "/api/agents", "/api/voice", "/api/agent-commands", "/api/agent-conversations", "/api/agent-thread", "/api/document", "/api/document-file",
+    "/api/agents", "/api/agent-providers", "/api/voice", "/api/agent-commands", "/api/agent-conversations", "/api/agent-thread", "/api/document", "/api/document-file",
     "/api/flags", "/api/health", "/api/update", "/api/scripts", "/api/script", "/api/tasks", "/api/task", "/api/usage-report", "/api/usage-summary",
 ]
 # Open on a --no-write server too: reading aloud changes nothing and calls no model.
@@ -67,7 +67,7 @@ POST_ROUTES = [
     "/api/create-skill", "/api/create-process",
     "/api/export-skills", "/api/ingest-skills", "/api/export-bundle",
     "/api/upload-bundle", "/api/import-bundle", "/api/delete-contracts",
-    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-spawn", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config", "/api/agent-panel",
+    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-spawn", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config", "/api/agent-provider-key", "/api/agent-provider-install", "/api/agent-provider-test", "/api/agent-panel",
     "/api/trigger-gate", "/api/trigger-action", "/api/trigger-config", "/api/trigger-check",
     "/api/trigger-channel", "/api/trigger-person", "/api/trigger-decline", "/api/trigger-reprocess",
     "/api/trigger-cancel", "/api/trigger-scan",

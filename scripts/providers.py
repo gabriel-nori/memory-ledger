@@ -137,7 +137,7 @@ def listing() -> list[dict[str, Any]]:
     out = []
     for kind, p in PROVIDERS.items():
         out.append({"kind": kind, "title": p["title"], "install": install_command(kind),
-                    "key_env": p["key_env"], "models": p["models"],
+                    "key_env": p["key_env"], "login": p["login"], "models": p["models"],
                     "has_key": bool(p["key_env"] and load_key(kind)),
                     **(detect(kind) if p["bin"] else {})})
     return out
@@ -162,3 +162,50 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
             cmd += ["-m", model]
         return cmd + ["-"]
     raise ValueError(f"{kind!r} is not a CLI provider")
+
+
+# ---------------------------------------------------------------- wizard actions
+def install(kind: str, timeout: int = 300) -> dict[str, Any]:
+    """Run the provider's `npm install -g`. The caller has the person's explicit yes."""
+    import _textio
+    cmd = install_command(kind)
+    if not cmd:
+        return {"ok": False, "error": f"{kind!r} has nothing to install"}
+    npm = _platform.resolve_bin("npm")
+    if not (os.path.isfile(npm) and os.access(npm, os.X_OK)):
+        return {"ok": False, "error": "npm is not installed (it ships with Node.js)",
+                "command": cmd}
+    try:
+        r = _textio.run_text([npm, "install", "-g", PROVIDERS[kind]["npm"]], timeout=timeout)
+    except Exception as e:
+        return {"ok": False, "error": f"npm did not finish: {e}", "command": cmd}
+    tail = ((r.stderr or "") + (r.stdout or "")).strip()[-600:]
+    if r.returncode != 0:
+        return {"ok": False, "error": tail or f"npm exited {r.returncode}", "command": cmd}
+    return {"ok": True, "command": cmd, **detect(kind)}
+
+
+def ping(kind: str, bin_name: str = "", timeout: int = 90) -> dict[str, Any]:
+    """One real call, "reply ok", with the saved key if there is one. The answer or the error,
+    with the key masked."""
+    import _textio
+    p = PROVIDERS.get(kind) or {}
+    if not p.get("bin"):
+        return {"ok": False, "error": f"{kind!r} is not a CLI provider"}
+    if not detect(kind, bin_name)["installed"]:
+        return {"ok": False, "error": f"{p['bin']} is not installed yet"}
+    if kind == "claude":
+        exe = _platform.resolve_bin(bin_name or p["bin"])
+        cmd = [exe, "-p", "--output-format", "text", "--model", p["default_model"]]
+    else:
+        cmd = cli_command(kind, {"bin": bin_name}, "", False)
+    try:
+        r = _textio.run_text(cmd, timeout=timeout, input="Reply with the single word: ok",
+                             env=child_env(kind, dict(os.environ)))
+    except Exception as e:
+        return {"ok": False, "error": redact(f"the call did not finish: {e}", kind)}
+    out = (r.stdout or "").strip()
+    if r.returncode != 0 or not out:
+        return {"ok": False, "error": redact(((r.stderr or "") or out).strip()[-600:], kind)
+                or f"{p['bin']} exited {r.returncode} without an answer"}
+    return {"ok": True, "answer": redact(out[:200], kind)}

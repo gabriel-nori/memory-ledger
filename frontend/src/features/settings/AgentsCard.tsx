@@ -8,7 +8,7 @@ import "./SettingsSection.css";
 
 type Draft = Partial<AgentConnector> & { kind: AgentKind; models_text?: string };
 
-const NEW: Record<AgentKind, Draft> = {
+const NEW: Record<"claude" | "ollama", Draft> = {
   claude: { kind: "claude", name: "Claude", enabled: true, bin: "claude", timeout_s: 900 },
   ollama: { kind: "ollama", name: "Ollama", enabled: true, url: "http://127.0.0.1:11434", timeout_s: 600, max_rounds: 8 },
 };
@@ -111,6 +111,17 @@ export function AgentsCard({ writable }: { writable: boolean }) {
                     <TextInput id={id} value={c.models_text ?? ""} onChange={(e) => edit(i, { models_text: e.target.value })} disabled={!writable} />)}
                   </Field>
                   <Field label="Default model">
+                    {(id) => (
+                    <TextInput id={id} value={c.default_model ?? ""} onChange={(e) => edit(i, { default_model: e.target.value })} disabled={!writable} />)}
+                  </Field>
+                </>
+              ) : c.kind !== "ollama" ? (
+                <>
+                  <Field label="CLI" hint={`The ${c.kind} binary. Set up in AI providers below.`}>
+                    {(id) => (
+                    <TextInput id={id} value={c.bin ?? ""} onChange={(e) => edit(i, { bin: e.target.value })} disabled={!writable} />)}
+                  </Field>
+                  <Field label="Default model" hint="Empty: the CLI picks its own.">
                     {(id) => (
                     <TextInput id={id} value={c.default_model ?? ""} onChange={(e) => edit(i, { default_model: e.target.value })} disabled={!writable} />)}
                   </Field>

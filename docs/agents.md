@@ -150,7 +150,7 @@ binary, npm package, models, key variable). Install with
 - **Sign-in is the CLI's own** (OAuth) by default. A provider may instead use an
   API key (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CODEX_API_KEY`): it is read from
   `<home>/secrets/<provider>.key` (one file per provider, mode 600, written by
-  `providers.save_key`; there is no UI for it yet) and reaches the CLI only as an
+  `providers.save_key`, which the wizard below calls) and reaches the CLI only as an
   environment variable. It is never in `agents.json`, the graph or a log, and it is masked
   in any error shown.
 - **Tools**: read-only runs Gemini with `--approval-mode plan` and Codex with
@@ -161,6 +161,42 @@ binary, npm package, models, key variable). Install with
 - Flags were checked against each vendor's docs on 2026-11-02; they change often.
 - The brain commands in the system prompt (`graph.py`, ...) need a shell, which a
   read-only Gemini or Codex does not have; they work with tools on.
+
+### Setup wizard
+
+Settings > **AI providers** walks one provider at a time: **install** (the official
+`npm install -g`, run on this machine only after you confirm in a dialog, or copy it
+and run it yourself), **sign in** (the CLI's own login, or an optional API key that is
+saved to the private file and never shown again, only "API key saved"), a **test call**
+(the CLI is asked to say ok, with the saved key; the answer or the error, key masked)
+and **Add connector**. Ollama stays in the Agents card above. Backend:
+`GET /api/agent-providers`, `POST /api/agent-provider-key`, `-install` (needs
+`confirm: true`) and `-test`; Gemini and Codex are listed only with `ai_providers` on.
+
+### Delegation
+
+With `ai_providers` on and **Allow delegation** ticked, an agent may hand a
+self-contained task to a connector of another provider, for example long web research
+to Gemini or a code review to Codex. It runs
+`agents.py delegate <connector> --task "<brief>"` from its shell and gets the other
+agent's answer back as text. Gemini and Codex have no shell in read-only mode, so
+only a Claude agent, or one with tools on, can start it.
+
+The prompt tells the agent the rules (the **When to delegate** and **Never delegate**
+texts), and the code enforces them, because a prompt alone does not hold:
+
+- the target must be ticked as allowed to receive tasks, enabled, and not the
+  delegating agent's own provider;
+- depth is 1: a delegated agent cannot delegate again;
+- at most **Tasks per turn** (default 3) per reply, each with a **Timeout**;
+- the delegate runs **read-only**, gets only the brief (no brain commands, no
+  conversation, no files), and its answer is stored as a sub-agent row labelled
+  `delegated to <name>` under the delegating reply;
+- a brief that names the id of a node in a **blocked realm** (default `personal`) is
+  refused, since the provider is an external service. Free text that merely
+  describes private content is not caught by this check: write briefs without it.
+
+Not built: a per-conversation override of the global switch.
 
 ## Connectors
 

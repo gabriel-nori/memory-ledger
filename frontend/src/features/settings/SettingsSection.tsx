@@ -24,6 +24,7 @@ import { TriggerCard } from "./TriggerCard";
 import { CustomTriggersCard } from "./CustomTriggersCard";
 import { B2BCard } from "./B2BCard";
 import { AgentsCard } from "./AgentsCard";
+import { ProvidersCard } from "./ProvidersCard";
 import { VoiceCard } from "./VoiceCard";
 import { RealmsCard } from "./RealmsCard";
 import { LearnedRulesCard } from "./LearnedRulesCard";
@@ -135,6 +136,7 @@ export function SettingsSection() {
 
       {settings.data ? <B2BCard writable={settings.data.writable} /> : null}
       {settings.data ? <AgentsCard writable={settings.data.writable} /> : null}
+      {settings.data ? <ProvidersCard writable={settings.data.writable} /> : null}
 
       {settings.data ? <VoiceCard writable={settings.data.writable} /> : null}
 

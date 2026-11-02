@@ -475,6 +475,22 @@ class AgentSpawn(Body):
     prompt: Text = T("What the sub-agent should do.")
 
 
+class AgentProvider(Body):
+    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+
+
+class AgentProviderKey(Body):
+    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+    key: Text = T("The API key to save. Empty with `remove: true` deletes the saved one.")
+    remove: Any = Field(None, description="`true` deletes the saved key.")
+
+
+class AgentProviderInstall(Body):
+    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+    confirm: Any = Field(None, description="Must be `true`: this runs `npm install -g` on "
+                                           "this machine.")
+
+
 class AgentPlugin(Body):
     key: Text = T("The plugin, as `name@marketplace`.")
     enabled: Any = Field(None, description="`true` turns it on, anything else off.")
@@ -490,6 +506,9 @@ class AgentConfig(Body):
     recall_limit: Any = Field(None, description="How many recalled nodes a turn gets, 0 to 30.")
     recall_budget: Any = Field(None, description="Their total size cap, in characters.")
     max_concurrent: Any = Field(None, description="Replies running at once, 1 to 8.")
+    delegation: Any = Field(None, description="`{enabled, targets[], rules, never, "
+                            "blocked_realms[], max_per_turn, timeout_s}`: agents handing tasks "
+                            "to another provider. Needs the `ai_providers` flag.")
 
 
 class FlagSet(Body):

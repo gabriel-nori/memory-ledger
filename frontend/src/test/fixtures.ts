@@ -941,7 +941,8 @@ const agentConnectors: import("@/api/types").AgentConnector[] = [
 
 export const agentsFixture: import("@/api/types").AgentsStatus = {
   ok: true,
-  config: { default_connector: "claude", context_turns: 1, recall_limit: 8, recall_budget: 2600, max_concurrent: 2 },
+  config: { default_connector: "claude", context_turns: 1, recall_limit: 8, recall_budget: 2600, max_concurrent: 2,
+    delegation: { enabled: false, targets: [], rules: "", never: "", blocked_realms: ["personal"], max_per_turn: 3, timeout_s: 600 } },
   connectors: agentConnectors,
   running: 0,
   question_mark: "[[needs-answer]]",
@@ -1077,5 +1078,16 @@ export const customTriggerDetailFixture: import("@/api/types").CustomTriggerDeta
       created: 1,
       error: "",
     },
+  ],
+};
+
+export const providersFixture: import("@/api/types").AgentProviders = {
+  ok: true,
+  enabled: true,
+  providers: [
+    { kind: "claude", title: "Claude", install: "npm install -g @anthropic-ai/claude-code", key_env: "ANTHROPIC_API_KEY",
+      login: "claude", models: [], has_key: false, installed: true, path: "/bin/claude", version: "2.1.0" },
+    { kind: "gemini", title: "Gemini", install: "npm install -g @google/gemini-cli", key_env: "GEMINI_API_KEY",
+      login: "gemini", models: ["auto"], has_key: true, installed: false },
   ],
 };

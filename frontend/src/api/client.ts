@@ -384,7 +384,20 @@ export const api = {
     recall_limit: number;
     recall_budget: number;
     max_concurrent: number;
+    delegation: import("./types").AgentDelegation;
   }>) => post<import("./types").AgentsStatus>("/api/agent-config", body),
+  agentProviders: (signal?: AbortSignal) =>
+    get<import("./types").AgentProviders>("/api/agent-providers", undefined, signal),
+  /** Save an API key (or delete the saved one); answers the refreshed list, never the key. */
+  saveProviderKey: (kind: string, key: string, remove = false) =>
+    post<import("./types").AgentProviders>("/api/agent-provider-key", { kind, key, remove }),
+  /** Runs `npm install -g` on this machine: only ever sent after the person confirmed. */
+  installProvider: (kind: string) =>
+    post<Envelope & { command: string; installed?: boolean; version?: string }>(
+      "/api/agent-provider-install", { kind, confirm: true }),
+  /** One real call through the CLI. */
+  testProvider: (kind: string) =>
+    post<Envelope & { answer?: string }>("/api/agent-provider-test", { kind }),
   flush: () => post("/api/flush", {}),
   /**
    * Consolidate. Refused without `confirm`, by the server — the preview is not

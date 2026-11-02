@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import agent_commands
 import agents
 import flags
+import providers
 import b2b
 import documents
 import brain_query
@@ -291,6 +292,17 @@ def b2b_thread(peer: str = Query("", description="The peer's user id."),
                         "connector offers now (an Ollama host is asked for its own).")
 def agents_status():
     return agents.status_payload()
+
+
+@router.get("/agent-providers", tags=["agents"], summary="Agents: the setup wizard's state",
+            description="Per provider (`claude`, `gemini`, `codex`, `ollama`): whether its CLI is "
+                        "installed and which version, the install command, the API-key variable "
+                        "and whether a key is saved (never the key). Gemini and Codex are listed "
+                        "only with the `ai_providers` flag on.")
+def agent_providers():
+    on = flags.enabled("ai_providers")
+    rows = [r for r in providers.listing() if on or r["kind"] not in providers.NEW_KINDS]
+    return {"ok": True, "providers": rows, "enabled": on}
 
 
 @router.get("/flags", tags=["settings"], summary="Feature flags and whether each is on",

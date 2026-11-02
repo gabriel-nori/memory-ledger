@@ -147,6 +147,7 @@ Every response is `Cache-Control: no-store`.
 | `/api/b2b-conversations` | every brain this one messaged or heard from, newest first, plus connected peers not talked to yet: name, whether it is connected and allowed, the message count and the last message |
 | `/api/b2b-thread?peer=` | both directions with one peer, oldest first; each message carries `at` (when it was sent), `human` (typed in the Messages chat, rather than by a session or a script), and for a received one its request and status |
 | `/api/agents` | the [Agents](agents.md) config and every connector with the models it offers now (an Ollama host is asked for its own) |
+| `/api/agent-providers` | the [setup wizard](agents.md#setup-wizard)'s state per provider: CLI installed and version, install command, key variable, whether a key is saved (never the key). Gemini and Codex only with `ai_providers` on |
 | `/api/agent-conversations` | every agent conversation, newest first, hidden ones flagged; `state` is its badge (`pending`, `question`, `done`, `error`, `empty`), with the last message and the total cost |
 | `/api/agent-commands` | the slash commands the composer offers (`name`, `plugin`, `kind` skill or command, `description`, `writes` — a guess from the name and description) and every installed plugin (`key`, `enabled`, `commands`); read from disk, no model call |
 | `/api/voice` | the voice settings, whether faster-whisper and a TTS engine work here, and the engine's voices |
@@ -257,7 +258,10 @@ since the dashboard lists tasks and a kind with none would be dead UI.
 | `/api/voice-config` | `{stt_language?, stt_auto?, tts_language?, tts_auto?, translate?, translate_target?, tts_enabled?, tts_background?, silence_s?, tts_voices?, verbosity?}` | merges a validated patch into `<home>/voice.json` |
 | `/api/voice-translate` | `{text, target?}` | one block translated (a model call); skipped when already in the target |
 | `/api/voice-speak` | `{text, language?, voice?}` | the block as a WAV; open on `--no-write` too |
-| `/api/agent-config` | `{connectors?[], default_connector?, context_turns?, recall_limit?, recall_budget?, max_concurrent?}` | merges a validated patch into `<home>/agents.json`; `connectors` replaces the list |
+| `/api/agent-config` | `{connectors?[], default_connector?, context_turns?, recall_limit?, recall_budget?, max_concurrent?, delegation?}` | merges a validated patch into `<home>/agents.json`; `connectors` replaces the list; `delegation` is `{enabled, targets[], rules, never, blocked_realms[], max_per_turn, timeout_s}` ([delegation](agents.md#delegation)) |
+| `/api/agent-provider-key` | `{kind, key?, remove?}` | saves (or removes) a provider's API key to `<home>/secrets/<kind>.key`, mode 600; answers the provider list, never the key |
+| `/api/agent-provider-install` | `{kind, confirm}` | runs `npm install -g` for the provider; refused without `confirm: true` |
+| `/api/agent-provider-test` | `{kind}` | one real call through the CLI asking it to say ok. **Starts a model call** |
 | `/api/b2b-config` | `{enabled?, brokers?[], private_key?, poll_seconds?, do?, action?, http?, script?, clear?[]}` | merges a validated patch into `<home>/b2b.json` (mode 600) and restarts the poller. The private key is write-only: `clear: ["private_key"]` removes it. `brokers` replaces the list. `poll_seconds` is 30 to 86400; an unknown `{variable}` in `do` is refused ([docs/b2b.md](b2b.md)) |
 | `/api/b2b-identity` | `{force?}` | makes this brain's X25519 key pair; the public key is the user id. Refuses to replace one unless `force` |
 | `/api/b2b-broker` | `{id?, url?, name?, enabled?, remove?}` | with no `id`, adds the broker at `url`; with one, changes it, or drops it with `remove` |
