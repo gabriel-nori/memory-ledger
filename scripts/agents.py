@@ -51,10 +51,11 @@ import _textio  # noqa: E402
 import documents  # noqa: E402
 import flags  # noqa: E402
 import graph  # noqa: E402
+import providers  # noqa: E402
 import voice  # noqa: E402
 
 CONFIG_NAME = "agents.json"
-KINDS = ("claude", "ollama")
+KINDS = ("claude", "ollama", *providers.NEW_KINDS)
 STATUSES = ("queued", "running", "done", "question", "error")
 PENDING = ("queued", "running")
 # The line an agent ends with when it cannot go on without the owner. Hidden in
@@ -220,8 +221,9 @@ def _clean_connector(c: Any, taken: set[str]) -> tuple[dict[str, Any] | None, st
     if not isinstance(c, dict):
         return None, "a connector must be an object"
     kind = str(c.get("kind") or "").strip()
-    if kind not in KINDS:
-        return None, f"connector kind must be one of {', '.join(KINDS)}"
+    if kind not in KINDS or (kind in providers.NEW_KINDS and not flags.enabled("ai_providers")):
+        kinds = [k for k in KINDS if k not in providers.NEW_KINDS or flags.enabled("ai_providers")]
+        return None, f"connector kind must be one of {', '.join(kinds)}"
     name = str(c.get("name") or kind.title()).strip()[:60]
     cid = graph.slugify(str(c.get("id") or name))[:40]
     base, n = cid, 2
@@ -239,6 +241,11 @@ def _clean_connector(c: Any, taken: set[str]) -> tuple[dict[str, Any] | None, st
         out["bin"] = str(c.get("bin") or "claude").strip()[:500]
         models = c.get("models") if isinstance(c.get("models"), list) else CLAUDE_MODELS
         out["models"] = [str(m).strip()[:120] for m in models if str(m).strip()][:20]
+    elif kind in providers.NEW_KINDS:
+        p = providers.PROVIDERS[kind]
+        out["bin"] = str(c.get("bin") or p["bin"]).strip()[:500]
+        out["models"] = list(p["models"])
+        out["default_model"] = out["default_model"] or p["default_model"]
     else:
         url = str(c.get("url") or "http://127.0.0.1:11434").strip().rstrip("/")[:500]
         if not re.match(r"^https?://", url):
@@ -464,7 +471,7 @@ def _pick(cfg: dict[str, Any], connector_id: str, model: str) -> tuple[dict | No
         if problem:
             return None, "", problem
         model = models[0] if models else ""
-    if not model:
+    if not model and c["kind"] != "codex":     # Codex picks its own default
         return None, "", f"pick a model for {c['name']}"
     return c, model[:120], ""
 
@@ -1319,7 +1326,53 @@ def run_ollama(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any]
     raise AgentError(f"no answer after {c.get('max_rounds') or 8} tool rounds")
 
 
-RUNNERS = {"claude": run_claude, "ollama": run_ollama}
+# ---------------------------------------------------------------- gemini, codex
+def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
+            turn: dict[str, Any]) -> dict[str, Any]:
+    """One turn on a plain-text CLI (Gemini, Codex): the system prompt and the
+    prompt go in on stdin, the answer comes back on stdout. These CLIs have no
+    stream the brain parses, so the log holds the answer only, and tokens and
+    cost are not known. The saved API key, if any, rides in the child's env."""
+    kind = c["kind"]
+    log = _Log(con, reply["id"])
+    cmd = providers.cli_command(kind, c, reply["model"], bool(reply["full_tools"]))
+    env = _textio.child_env(providers.child_env(kind, {
+        **os.environ, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
+        "MEMORY_LEDGER_AGENT_CONV": reply["conv_id"]}))
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.PIPE, text=True, encoding="utf-8",
+                                errors="replace", env=env,
+                                cwd=str(graph.home_dir()) if graph.home_dir().is_dir()
+                                else str(Path.home()), **_platform.group_kwargs())
+    except OSError as e:
+        raise AgentError(f"could not start {cmd[0]}: {e}") from None
+    _platform.track(proc)
+    with _lock:
+        _procs[reply["id"]] = proc
+    timer = threading.Timer(int(c.get("timeout_s") or 900), _platform.kill_tree, (proc,))
+    timer.start()
+    try:
+        out, err = proc.communicate(turn["system"] + "\n\n" + turn["prompt"])
+    finally:
+        timed_out = not timer.is_alive() and proc.returncode not in (0, None)
+        timer.cancel()
+        _platform.untrack(proc)
+        with _lock:
+            _procs.pop(reply["id"], None)
+    if timed_out:
+        raise AgentError(f"timed out after {c.get('timeout_s')}s")
+    text = (out or "").strip()
+    if proc.returncode != 0 or not text:
+        detail = providers.redact((err or "").strip()[-600:], kind)
+        raise AgentError(detail or f"{kind} exited {proc.returncode} without an answer")
+    log.add({"kind": "text", "name": "said", "output": _clip(text)})
+    log.flush(force=True)
+    return {"text": text, "events": log.events, "tokens": (0, 0),
+            "cost_usd": None, "cost_estimated": False}
+
+
+RUNNERS = {"claude": run_claude, "ollama": run_ollama, "gemini": run_cli, "codex": run_cli}
 
 
 # ---------------------------------------------------------------- running

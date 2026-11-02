@@ -31,6 +31,12 @@ FLAGS: dict[str, dict[str, Any]] = {
                        "Off: sub-agents stay events inside the reply.",
         "default": False,
     },
+    "ai_providers": {
+        "title": "More AI providers",
+        "description": "Connect Gemini and ChatGPT (Codex) next to Claude and Ollama, each run "
+                       "through its own CLI. Off: only Claude and Ollama connectors.",
+        "default": False,
+    },
 }
 
 

@@ -139,6 +139,27 @@ At the top right of a conversation:
 - **Hide**: moves the conversation to the folded **Hidden** group under the active
   list. **Unhide** brings it back. Nothing is deleted.
 
+## More providers: Gemini and ChatGPT (Codex)
+
+Behind the `ai_providers` flag (Settings > Flags), `kind` can also be `gemini` or
+`codex`. Each runs through its own CLI (`scripts/providers.py` holds the table:
+binary, npm package, models, key variable). Install with
+`npm install -g @google/gemini-cli` or `npm install -g @openai/codex`.
+
+- **Sign-in is the CLI's own** (OAuth) by default. A connector may instead use an
+  API key (`GEMINI_API_KEY`, `CODEX_API_KEY`): it is saved one file per provider
+  under `<home>/secrets/`, mode 600, and reaches the CLI only as an environment
+  variable. It is never in `agents.json`, the graph or a log, and it is masked
+  in any error shown.
+- **Tools**: read-only runs Gemini with `--approval-mode plan` and Codex with
+  `--sandbox read-only`; tools on runs `yolo` and `workspace-write`.
+- **Plain text**: these CLIs are not streamed, so the log holds the answer only and
+  tokens and cost are unknown. The prompt goes in on stdin; Cancel kills the process
+  tree like Claude's.
+- Flags were checked against each vendor's docs on 2026-11-02; they change often.
+- The brain commands in the system prompt (`graph.py`, ...) need a shell, which a
+  read-only Gemini or Codex does not have; they work with tools on.
+
 ## Connectors
 
 `<home>/agents.json`, edited in **Settings → Agents**:
