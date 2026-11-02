@@ -1823,7 +1823,7 @@ def build_prompt(req: dict, cfg: dict) -> str:
              "b2b": ("none by default: this is a message from another brain, not a "
                      "conversation to post in. Answer it only if `instructions` say to, "
                      "and then only as a B2B message back: python3 "
-                     f"\"{Path(__file__).resolve().parent / 'b2b.py'}\" send --to "
+                     f"{_platform.shell_path(Path(__file__).resolve().parent / 'b2b.py')} send --to "
                      f"{req.get('requester_id') or '<peer id>'} --text \"<answer, then the "
                      "signature>\""),
              # Said out loud in a meeting: there is no thread to answer in.
@@ -1895,7 +1895,7 @@ MESSAGE>>>
 
 Open the permalink with your own {tools} to read the conversation
 around it before acting. Log every outward action against the request id:
-python3 "{Path(__file__).resolve()}" action --request {req['id']} --kind <kind> --target <url> --detail "<what>"
+python3 {_platform.shell_path(Path(__file__).resolve())} action --request {req['id']} --kind <kind> --target <url> --detail "<what>"
 
 Reply in the language the message above is written in, whatever language the
 rest of the conversation or this prompt is in. The signature line stays exactly
@@ -1907,7 +1907,7 @@ requester instead, with the permalink, and log it with --kind reply-dm.
 
 If the request breaks one of the brain's rules or guardrails, do not do it.
 Decline it instead, which records why and prints the notice to post:
-python3 "{Path(__file__).resolve()}" decline --request {req['id']} --rule <rule-id> --reason "<one short, non-sensitive line>"
+python3 {_platform.shell_path(Path(__file__).resolve())} decline --request {req['id']} --rule <rule-id> --reason "<one short, non-sensitive line>"
 Post its `notice`, in the message's language, then its `signature` exactly, as your
 only reply, and log it with --kind refusal-notice.
 """

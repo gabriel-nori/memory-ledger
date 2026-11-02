@@ -35,6 +35,15 @@ def resolve_bin(name: str) -> str:
     return shutil.which(name) or name
 
 
+def shell_path(path) -> str:
+    """A path to paste into a command a model will run through bash. Windows'
+    `C:\\Users\\x\\graph.py` loses its backslashes in Git Bash and the call
+    fails, so it is written with `/`, which Git Bash and Windows Python both
+    accept. Quoted when it holds a space. A POSIX path comes back unchanged."""
+    s = str(path).replace("\\", "/") if WINDOWS else str(path)
+    return f'"{s}"' if " " in s else s
+
+
 def bash() -> str | None:
     """A bash to run a shell script with: PATH first (Git Bash, WSL's, Homebrew's),
     then the usual places, then sh. None when there is no POSIX shell at all."""

@@ -82,10 +82,10 @@ SCRIPT = Path(__file__).resolve()
 # These run in both tool modes: read-only limits what an agent does OUTSIDE the
 # brain, never its memory (the offload rule, CONVENTIONS §0). Read-only Claude
 # gets Bash for these commands and nothing else.
-THREAD_CMD = f"python3 {SCRIPT} thread"
-GRAPH_CMD = f"python3 {SCRIPT.parent / 'graph.py'}"
-QUERY_CMD = f"python3 {SCRIPT.parent / 'brain_query.py'}"
-DELEGATE_CMD = f"python3 {SCRIPT} delegate"
+THREAD_CMD = f"python3 {_platform.shell_path(SCRIPT)} thread"
+GRAPH_CMD = f"python3 {_platform.shell_path(SCRIPT.parent / 'graph.py')}"
+QUERY_CMD = f"python3 {_platform.shell_path(SCRIPT.parent / 'brain_query.py')}"
+DELEGATE_CMD = f"python3 {_platform.shell_path(SCRIPT)} delegate"
 BRAIN_CMDS = (THREAD_CMD, GRAPH_CMD, QUERY_CMD, DELEGATE_CMD)
 # Read-only Claude may also look things up through the person's connectors.
 # Only these, by exact name: anything that posts, edits, labels or deletes is

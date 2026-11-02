@@ -181,8 +181,8 @@ def context_path(kind: str) -> Path | None:
 
 
 def context_block() -> str:
-    g = f"python3 {Path(__file__).resolve().parent / 'graph.py'}"
-    q = f"python3 {Path(__file__).resolve().parent / 'brain_query.py'}"
+    g = f"python3 {_platform.shell_path(Path(__file__).resolve().parent / 'graph.py')}"
+    q = f"python3 {_platform.shell_path(Path(__file__).resolve().parent / 'brain_query.py')}"
     return "\n".join([
         BLOCK_START,
         "## Memory Ledger (the owner's second brain)",

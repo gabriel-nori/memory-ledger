@@ -193,3 +193,15 @@ def test_reexec_keeps_the_pid_that_was_started_and_hands_back_its_exit_code(tmp_
     done = subprocess.run([sys.executable, str(script)], check=False, timeout=60)
     assert done.returncode == 7
     assert time.time() - started < 60
+
+
+def test_shell_path_uses_forward_slashes_on_windows(monkeypatch):
+    # Git Bash eats backslashes; a command a model pastes must not carry them.
+    monkeypatch.setattr(_platform, "WINDOWS", True)
+    assert _platform.shell_path(r"C:\Users\x\scripts\graph.py") == "C:/Users/x/scripts/graph.py"
+    assert _platform.shell_path(r"C:\Users\Gabriel Nori\graph.py") == '"C:/Users/Gabriel Nori/graph.py"'
+
+
+def test_shell_path_leaves_posix_alone(monkeypatch):
+    monkeypatch.setattr(_platform, "WINDOWS", False)
+    assert _platform.shell_path("/home/x/scripts/graph.py") == "/home/x/scripts/graph.py"
