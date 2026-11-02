@@ -121,6 +121,14 @@ Storage is one SQLite file. Never write SQL yourself — always go through:
 python3 "$CLAUDE_PLUGIN_ROOT/scripts/graph.py" <command> [flags]
 ```
 
+**Paths in commands an agent runs.** Where code builds such a command with an absolute
+path (the Agents prompt, the Gemini/Codex brain block, trigger and B2B prompts), write the
+path with `_platform.shell_path()`, never the raw `Path`: on Windows a `\` path is mangled
+by Git Bash, the command fails and is retried (tokens), and the allowlist stops matching.
+It writes `/` on Windows, quotes a path with a space, and leaves macOS/Linux as is.
+`$CLAUDE_PLUGIN_ROOT` above is expanded by Claude Code itself; whether it uses `/` on
+Windows is unverified.
+
 **The brain is global and lives OUTSIDE any repo.** Its home is
 `~/.memory-ledger` (override with `$MEMORY_LEDGER_HOME`, or the legacy
 `$SECOND_BRAIN_HOME`), so every project on the machine shares one brain. It is

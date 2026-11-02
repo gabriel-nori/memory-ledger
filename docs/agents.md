@@ -99,6 +99,15 @@ The system prompt gives Claude those commands with their absolute paths:
 things up, and `add-node` and `add-edge` to store what the turn produced. They
 must run as written, not after a `cd`, or the allow rule does not match.
 
+**Paths on Windows.** The commands go to a bash (Git Bash on Windows), which eats the
+backslashes of `C:\Users\...\graph.py`: the command fails, the agent retries and burns
+tokens, and the read-only allow rule (`Bash(python3 <path>:*)`) no longer matches what
+reaches the shell. So every script path put in a command an agent will run (this prompt,
+the Gemini and Codex brain block, the trigger and B2B prompts) goes through
+`_platform.shell_path()`: `/` instead of `\` on Windows (Git Bash and Windows Python accept
+it), quoted when the path has a space, unchanged on macOS and Linux. A new command that
+embeds a path must use it too. Not yet tried on a real Windows machine.
+
 The plugin's own hooks run in these sessions too, since the `claude` CLI loads them in
 `-p` mode: the prompt and answer captures, and the SessionStart bootstrap.
 
