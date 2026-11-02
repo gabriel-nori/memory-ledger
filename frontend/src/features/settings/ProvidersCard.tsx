@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
 import {
-  Badge, Button, Card, Checkbox, ConfirmDialog, Field, Spinner, StatusMessage, TextArea, TextInput,
+  Badge, Button, Card, Checkbox, ConfirmDialog, Field, Select, Spinner, StatusMessage, TextArea, TextInput,
 } from "@/components";
 import type { AgentDelegation, AgentProvider, AgentsStatus } from "@/api/types";
 import "./SettingsSection.css";
@@ -25,6 +25,9 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
   const [brainFor, setBrainFor] = useState<AgentProvider | null>(null);
   const [deleg, setDeleg] = useState<AgentDelegation | null>(null);
   const [out, setOut] = useState<Note | null>(null);
+  // Gemini: an individual account signs in through the Antigravity CLI (Google closed the
+  // Gemini CLI sign-in for it); an organization keeps the Gemini CLI and its API key.
+  const [acct, setAcct] = useState<"individual" | "org">("individual");
 
   useEffect(() => {
     if (status.data) setDeleg(status.data.config.delegation);
@@ -76,7 +79,9 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
     }
   };
 
-  const cliProviders = providers.data.providers.filter((p) => p.kind !== "ollama");
+  const cliProviders = providers.data.providers.filter(
+    (p) => p.kind !== "ollama" && p.kind !== (acct === "individual" ? "gemini" : "antigravity"),
+  );
 
   return (
     <Card>
@@ -97,11 +102,23 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                 {p.has_key ? <Badge tone="accent">API key saved</Badge> : <Badge>CLI sign-in</Badge>}
                 {p.installed ? <Badge tone={p.brain ? "accent" : "warn"}>{p.brain ? "brain connected" : "brain not connected"}</Badge> : null}
               </div>
+              {p.kind === "gemini" || p.kind === "antigravity" ? (
+                <div className="ml-agents-card__fields">
+                  <Field label="Gemini account" hint="Individual signs in through Antigravity (agy); an organization uses the Gemini CLI.">
+                    {(id) => (
+                      <Select id={id} value={acct} disabled={!writable || !!busy}
+                        options={[{ value: "individual", label: "Individual" }, { value: "org", label: "Organization" }]}
+                        onChange={(e) => setAcct(e.target.value as "individual" | "org")} />
+                    )}
+                  </Field>
+                </div>
+              ) : null}
               <p className="ml-settings__hint">
-                1. Install: <code>{p.install}</code> &nbsp; 2. Sign in: run <code>{p.login}</code> in a terminal, or save an
-                API key (<code>{p.key_env}</code>) below. 3. Connect the brain, so the CLI can read and write it. 4. Test call.
+                1. Install: <code>{p.install}</code> &nbsp; 2. Sign in: run <code>{p.login}</code> in a terminal
+                {p.key_env ? <>, or save an API key (<code>{p.key_env}</code>) below</> : " (it opens the browser)"}. 3. Connect the brain, so the CLI can read and write it. 4. Test call.
                 5. Add the connector.
               </p>
+              {p.key_env ? (
               <div className="ml-agents-card__fields">
                 <Field label="API key" hint="Optional. Sent to the CLI as an environment variable.">
                   {(id) => (
@@ -110,15 +127,16 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                   )}
                 </Field>
               </div>
+              ) : null}
               <div className="ml-agents-card__add">
                 <Button size="sm" disabled={!writable || !!busy || p.installed} onClick={() => setConfirm(p)}>Install</Button>
-                <Button size="sm" disabled={!writable || !!busy || !(keys[p.kind] ?? "").trim()}
+                {p.key_env ? <Button size="sm" disabled={!writable || !!busy || !(keys[p.kind] ?? "").trim()}
                   onClick={() => run(p.kind, "key", async () => {
                     await api.saveProviderKey(p.kind, keys[p.kind]);
                     setKeys((k) => ({ ...k, [p.kind]: "" }));
                     providers.reload();
                     return { text: "Key saved.", tone: "success" };
-                  })}>Save key</Button>
+                  })}>Save key</Button> : null}
                 {p.has_key ? (
                   <Button size="sm" variant="danger" disabled={!writable || !!busy}
                     onClick={() => run(p.kind, "key", async () => {
@@ -170,7 +188,7 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
           title={`Connect the brain to ${brainFor.title}?`}
           body={brainFor.kind === "claude"
             ? <>This installs the memory-ledger plugin into Claude Code from this checkout.</>
-            : <>This adds a marked block to <code>{brainFor.kind === "gemini" ? "~/.gemini/GEMINI.md" : "~/.codex/AGENTS.md"}</code> with
+            : <>This adds a marked block to <code>{brainFor.kind === "gemini" || brainFor.kind === "antigravity" ? "~/.gemini/GEMINI.md" : "~/.codex/AGENTS.md"}</code> with
               the commands to read and write the brain. The rest of the file is left alone.</>}
           confirmLabel="Connect"
           busy={busy.endsWith(":brain")}

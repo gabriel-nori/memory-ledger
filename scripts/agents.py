@@ -1379,7 +1379,7 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
             "cost_usd": None, "cost_estimated": False}
 
 
-RUNNERS = {"claude": run_claude, "ollama": run_ollama, "gemini": run_cli, "codex": run_cli}
+RUNNERS = {"claude": run_claude, "ollama": run_ollama, "gemini": run_cli, "antigravity": run_cli, "codex": run_cli}
 
 
 # ---------------------------------------------------------------- running

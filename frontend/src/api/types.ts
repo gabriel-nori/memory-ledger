@@ -1278,7 +1278,7 @@ export interface B2BSendResult extends Envelope {
 }
 
 // ------------------------------------------------------------------ agents
-export type AgentKind = "claude" | "ollama" | "gemini" | "codex";
+export type AgentKind = "claude" | "ollama" | "gemini" | "antigravity" | "codex";
 
 export interface AgentConnector {
   id: string;

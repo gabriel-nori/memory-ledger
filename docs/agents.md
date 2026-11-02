@@ -156,6 +156,17 @@ Behind the `ai_providers` flag (Settings > Flags), `kind` can also be `gemini` o
 binary, npm package, models, key variable). Install with
 `npm install -g @google/gemini-cli` or `npm install -g @openai/codex`.
 
+- **Gemini has two modes** (the "Gemini account" selector in the wizard). **Individual**
+  runs on the Antigravity CLI (`kind: antigravity`, binary `agy`): Google closed the Gemini
+  CLI's "Code Assist for individuals" sign-in and moved it there. Install is Google's own
+  script (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, or the PowerShell
+  one on Windows), run only after you confirm; sign in once by running `agy` in a terminal
+  (it opens the browser), headless runs then reuse the saved session. It takes no API key
+  here. **Organization** keeps the Gemini CLI (`kind: gemini`) with its sign-in or API key.
+  `agy` has no read-only mode: with tools off a tool that needs approval is refused, with tools
+  on the run passes `--dangerously-skip-permissions`. Flags checked against
+  antigravity.google/docs on 2026-11-02; the stdin prompt (`--input-format text`) is the
+  least documented part, so run **Test call** after installing.
 - **Sign-in is the CLI's own** (OAuth) by default. A provider may instead use an
   API key (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CODEX_API_KEY`): it is read from
   `<home>/secrets/<provider>.key` (one file per provider, mode 600, written by

@@ -1089,5 +1089,7 @@ export const providersFixture: import("@/api/types").AgentProviders = {
       login: "claude", models: [], has_key: false, installed: true, path: "/bin/claude", version: "2.1.0" },
     { kind: "gemini", title: "Gemini", install: "npm install -g @google/gemini-cli", key_env: "GEMINI_API_KEY",
       login: "gemini", models: ["auto"], has_key: true, installed: false },
+    { kind: "antigravity", title: "Gemini (individual, Antigravity)", install: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+      key_env: "", login: "agy", models: [], has_key: false, installed: false },
   ],
 };

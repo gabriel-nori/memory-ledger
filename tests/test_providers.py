@@ -79,6 +79,18 @@ def test_gemini_is_read_only_and_gets_the_prompt_on_stdin(cli):
     assert "SYS" in call["stdin"] and "PROMPT" in call["stdin"]
 
 
+def test_antigravity_asks_before_tools_unless_they_are_on(cli):
+    exe, calls = cli
+    _run("antigravity", exe)
+    _run("antigravity", exe, full=True)
+    ro, full = calls()
+    assert ro["argv"] == ["-p", "", "--input-format", "text", "--output-format", "text"]
+    assert full["argv"][-1] == "--dangerously-skip-permissions"
+    assert "PROMPT" in ro["stdin"]
+    assert providers.PROVIDERS["antigravity"]["key_env"] == ""      # account sign-in, no key
+    assert "install.sh" in providers.install_command("antigravity") or os.name == "nt"
+
+
 def test_codex_is_read_only_unless_tools_are_on(cli):
     exe, calls = cli
     _run("codex", exe)

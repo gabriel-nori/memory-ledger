@@ -478,17 +478,17 @@ class AgentSpawn(Body):
 
 
 class AgentProvider(Body):
-    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+    kind: Text = T("The provider: `claude`, `gemini`, `antigravity` or `codex`.")
 
 
 class AgentProviderKey(Body):
-    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+    kind: Text = T("The provider: `claude`, `gemini`, `antigravity` or `codex`.")
     key: Text = T("The API key to save. Empty with `remove: true` deletes the saved one.")
     remove: Any = Field(None, description="`true` deletes the saved key.")
 
 
 class AgentProviderInstall(Body):
-    kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
+    kind: Text = T("The provider: `claude`, `gemini`, `antigravity` or `codex`.")
     confirm: Any = Field(None, description="Must be `true`: this runs `npm install -g` on "
                                            "this machine (or changes the CLI's setup).")
     brain: Any = Field(None, description="`false` skips giving the CLI the brain after the "

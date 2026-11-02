@@ -38,6 +38,17 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         # `auto` is the CLI's own alias; read-only is `--approval-mode plan`
         "models": ["auto", "pro", "flash", "flash-lite"], "default_model": "auto",
     },
+    # Gemini for an individual account: Google closed the Gemini CLI sign-in for it and moved
+    # it to the Antigravity CLI (docs: antigravity.google/docs/install, /docs/cli/headless,
+    # checked 2026-11-02). It signs in through the browser and keeps the session in the OS
+    # keyring; headless runs reuse it. Its API-key route needs a settings.json change, so no key here.
+    "antigravity": {
+        "title": "Gemini (individual, Antigravity)", "bin": "agy", "npm": "",
+        "script": {"posix": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+                   "windows": "irm https://antigravity.google/cli/install.ps1 | iex"},
+        "key_env": "", "check": ["--version"], "login": "agy",
+        "models": [], "default_model": "",
+    },
     "codex": {
         "title": "ChatGPT (Codex)", "bin": "codex", "npm": "@openai/codex",
         "key_env": "CODEX_API_KEY", "check": ["--version"], "login": "codex login",
@@ -51,11 +62,25 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 # Providers that run as a local CLI (everything but Ollama's HTTP API).
 CLI_KINDS = tuple(k for k, p in PROVIDERS.items() if p["bin"])
-NEW_KINDS = ("gemini", "codex")         # behind the `ai_providers` flag
+NEW_KINDS = ("gemini", "antigravity", "codex")         # behind the `ai_providers` flag
+
+
+def _exe(kind: str, name: str = "") -> str:
+    """The program for `kind`. The Antigravity script installs to ~/.local/bin, which a
+    server started before the install may not have on PATH."""
+    p = PROVIDERS.get(kind) or {}
+    exe = _platform.resolve_bin(name or p.get("bin") or "")
+    if p.get("script") and not os.path.isfile(exe):
+        alt = Path.home() / ".local" / "bin" / (p["bin"] + (".exe" if os.name == "nt" else ""))
+        if alt.is_file():
+            return str(alt)
+    return exe
 
 
 def install_command(kind: str) -> str:
     p = PROVIDERS.get(kind) or {}
+    if p.get("script"):
+        return p["script"]["windows" if os.name == "nt" else "posix"]
     return f"npm install -g {p['npm']}" if p.get("npm") else ""
 
 
@@ -119,7 +144,7 @@ def detect(kind: str, bin_name: str = "") -> dict[str, Any]:
     name = bin_name or p.get("bin") or ""
     if not name:
         return {"installed": False, "path": "", "version": ""}
-    path = _platform.resolve_bin(name)
+    path = _exe(kind, name)
     if not (os.path.isfile(path) and os.access(path, os.X_OK)):
         return {"installed": False, "path": "", "version": ""}
     version = ""
@@ -149,12 +174,21 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
     """argv for one turn of gemini or codex. The prompt goes in on stdin.
     Read-only unless the conversation has tools on."""
     p = PROVIDERS[kind]
-    exe = _platform.resolve_bin(str(c.get("bin") or p["bin"]))
+    exe = _exe(kind, str(c.get("bin") or ""))
     if kind == "gemini":
         # `-p ""` forces headless mode; the piped prompt is the whole input
         cmd = [exe, "-p", "", "-o", "text", "--approval-mode", "yolo" if full else "plan"]
         if model:
             cmd += ["-m", model]
+        return cmd
+    if kind == "antigravity":
+        # `-p ""` runs headless and the prompt is read from stdin. Without a permission flag a
+        # tool that needs approval is soft-denied (agy has no plan mode), which is the read-only run.
+        cmd = [exe, "-p", "", "--input-format", "text", "--output-format", "text"]
+        if full:
+            cmd.append("--dangerously-skip-permissions")
+        if model:
+            cmd += ["--model", model]
         return cmd
     if kind == "codex":
         cmd = [exe, "exec", "--skip-git-repo-check",
@@ -171,7 +205,8 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
 # have no plugin of ours, so a marked block goes in the context file each reads at start.
 PLUGIN = "memory-ledger"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-CONTEXT_FILE = {"gemini": (".gemini", "GEMINI.md"), "codex": (".codex", "AGENTS.md")}
+CONTEXT_FILE = {"gemini": (".gemini", "GEMINI.md"), "antigravity": (".gemini", "GEMINI.md"),
+                "codex": (".codex", "AGENTS.md")}
 BLOCK_START, BLOCK_END = "<!-- memory-ledger:begin -->", "<!-- memory-ledger:end -->"
 
 
@@ -270,11 +305,28 @@ def install_brain(kind: str, bin_name: str = "", timeout: int = 120) -> dict[str
 
 # ---------------------------------------------------------------- wizard actions
 def install(kind: str, timeout: int = 300) -> dict[str, Any]:
-    """Run the provider's `npm install -g`. The caller has the person's explicit yes."""
+    """Run the provider's install (`npm install -g`, or the vendor's script for Antigravity).
+    The caller has the person's explicit yes."""
     import _textio
     cmd = install_command(kind)
     if not cmd:
         return {"ok": False, "error": f"{kind!r} has nothing to install"}
+    if PROVIDERS[kind].get("script"):
+        argv = (["powershell", "-NoProfile", "-Command", cmd] if os.name == "nt"
+                else ["bash", "-c", cmd])
+        try:
+            r = _textio.run_text(argv, timeout=timeout)
+        except Exception as e:
+            return {"ok": False, "error": f"the installer did not finish: {e}", "command": cmd}
+        tail = ((r.stderr or "") + (r.stdout or "")).strip()[-600:]
+        if r.returncode != 0:
+            return {"ok": False, "error": tail or f"installer exited {r.returncode}", "command": cmd}
+        # the script puts agy in ~/.local/bin, which may not be on this process's PATH yet
+        d = detect(kind)
+        if not d["installed"]:
+            return {"ok": False, "command": cmd,
+                    "error": "installed, but agy is not on PATH yet (add ~/.local/bin and restart the server)"}
+        return {"ok": True, "command": cmd, **d, **brain_state(kind)}
     npm = _platform.resolve_bin("npm")
     if not (os.path.isfile(npm) and os.access(npm, os.X_OK)):
         return {"ok": False, "error": "npm is not installed (it ships with Node.js)",
