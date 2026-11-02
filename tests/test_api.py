@@ -67,7 +67,7 @@ POST_ROUTES = [
     "/api/create-skill", "/api/create-process",
     "/api/export-skills", "/api/ingest-skills", "/api/export-bundle",
     "/api/upload-bundle", "/api/import-bundle", "/api/delete-contracts",
-    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-spawn", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config", "/api/agent-provider-key", "/api/agent-provider-install", "/api/agent-provider-test", "/api/agent-panel",
+    "/api/agent-send", "/api/agent-attach", "/api/agent-conversation", "/api/agent-retry", "/api/agent-spawn", "/api/agent-cancel", "/api/agent-plugin", "/api/agent-config", "/api/agent-provider-key", "/api/agent-provider-install", "/api/agent-provider-brain", "/api/agent-provider-test", "/api/agent-panel",
     "/api/trigger-gate", "/api/trigger-action", "/api/trigger-config", "/api/trigger-check",
     "/api/trigger-channel", "/api/trigger-person", "/api/trigger-decline", "/api/trigger-reprocess",
     "/api/trigger-cancel", "/api/trigger-scan",

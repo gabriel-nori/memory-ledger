@@ -243,6 +243,7 @@ export const handlers = [
   write("/api/agent-config", () => HttpResponse.json(agentsFixture)),
   write("/api/agent-provider-key", () => HttpResponse.json(providersFixture)),
   write("/api/agent-provider-install", () => ok({ command: "npm install -g @google/gemini-cli" })),
+  write("/api/agent-provider-brain", () => ok({ brain: true })),
   write("/api/agent-provider-test", () => ok({ answer: "ok" })),
   write("/api/voice-config", () => HttpResponse.json(voiceFixture)),
   write("/api/voice-translate", (body: { text?: string; target?: string }) =>

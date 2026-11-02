@@ -171,7 +171,27 @@ saved to the private file and never shown again, only "API key saved"), a **test
 (the CLI is asked to say ok, with the saved key; the answer or the error, key masked)
 and **Add connector**. Ollama stays in the Agents card above. Backend:
 `GET /api/agent-providers`, `POST /api/agent-provider-key`, `-install` (needs
-`confirm: true`) and `-test`; Gemini and Codex are listed only with `ai_providers` on.
+`confirm: true`), `-brain` (needs `confirm: true`) and `-test`; Gemini and Codex are listed
+only with `ai_providers` on.
+
+**Connect the brain.** A CLI only reads and writes the brain from its own sessions once it
+knows the commands. The install confirm covers this step too, and **Connect brain** does it for
+a CLI that is already there (the row says "brain connected" or "brain not connected"): Claude
+gets the `memory-ledger` plugin from this checkout (`claude plugin marketplace add <checkout>`,
+then `claude plugin install memory-ledger@memory-ledger`; restart open sessions to load it), and
+Gemini and Codex get a block between `<!-- memory-ledger:begin -->` and `<!-- memory-ledger:end -->`
+in `~/.gemini/GEMINI.md` or `~/.codex/AGENTS.md`, with the `match-rules`, `recall`, `search`,
+`open` and `add-node` commands. The rest of the file is left alone and a repeat rewrites only
+the block. Replies in the Agents tab never needed this: their system prompt carries the commands.
+
+### Choosing the agent
+
+Wherever a Claude run starts, you pick the connector it runs on. In **Settings > Triggers** and
+**B2B > Receiving**, a Claude action has an **Agent** field (`agent`, a connector id; empty is the
+trigger's own Claude, as before). The run gets the same prompt and its answer is the request's
+result. Claude connectors run the usual session on their binary and model; Gemini and Codex run
+with tools on, as the Claude session does. Ollama cannot be picked, and a connector that is gone
+or switched off fails the run with that reason. `b2b.py config --agent <id>` sets it from the CLI.
 
 ### Delegation
 

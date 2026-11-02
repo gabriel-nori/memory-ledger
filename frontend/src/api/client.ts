@@ -393,8 +393,12 @@ export const api = {
     post<import("./types").AgentProviders>("/api/agent-provider-key", { kind, key, remove }),
   /** Runs `npm install -g` on this machine: only ever sent after the person confirmed. */
   installProvider: (kind: string) =>
-    post<Envelope & { command: string; installed?: boolean; version?: string }>(
+    post<Envelope & { command: string; installed?: boolean; version?: string; brain?: boolean; brain_error?: string }>(
       "/api/agent-provider-install", { kind, confirm: true }),
+  /** Gives a provider's CLI the brain (plugin or context block); only sent after the person confirmed. */
+  installProviderBrain: (kind: string) =>
+    post<Envelope & { brain?: boolean; note?: string; path?: string }>(
+      "/api/agent-provider-brain", { kind, confirm: true }),
   /** One real call through the CLI. */
   testProvider: (kind: string) =>
     post<Envelope & { answer?: string }>("/api/agent-provider-test", { kind }),

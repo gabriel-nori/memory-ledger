@@ -192,3 +192,42 @@ def test_the_wizard_routes(module_brain_home, monkeypatch, tmp_path):
     assert r.json()["command"] == "npm install -g @openai/codex"
     r = client.post("/api/agent-config", json={"delegation": {"enabled": True, "targets": ["codex"]}})
     assert r.json()["config"]["delegation"]["targets"] == ["codex"]
+
+
+# ---------------------------------------------------------------- brain step
+def test_gemini_gets_the_brain_as_a_marked_block_and_a_repeat_changes_nothing(cli, tmp_path, monkeypatch):
+    exe, _ = cli
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    (tmp_path / ".gemini").mkdir()
+    (tmp_path / ".gemini" / "GEMINI.md").write_text("my own notes\n", encoding="utf-8")
+    assert providers.brain_state("gemini") == {"brain": False}
+    res = providers.install_brain("gemini", str(exe))
+    assert res["ok"] and res["brain"]
+    text = (tmp_path / ".gemini" / "GEMINI.md").read_text(encoding="utf-8")
+    assert text.startswith("my own notes") and "graph.py" in text and "match-rules" in text
+    assert providers.brain_state("gemini") == {"brain": True}
+    providers.install_brain("gemini", str(exe))
+    assert (tmp_path / ".gemini" / "GEMINI.md").read_text(encoding="utf-8") == text
+
+
+def test_the_brain_step_needs_the_cli_installed(module_brain_home, monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    res = providers.install_brain("codex", str(tmp_path / "no-such-codex"))
+    assert not res["ok"] and "not installed" in res["error"]
+    assert not (tmp_path / ".codex").exists()
+
+
+def test_claude_gets_the_plugin_from_this_checkout(module_brain_home, tmp_path):
+    seen = tmp_path / "seen.txt"
+    fake = make_exe(tmp_path / "claude", f'''#!/usr/bin/env python3
+import sys
+open({str(seen)!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")
+if sys.argv[1:4] == ["plugin", "list", "--json"]:
+    print("[]" if not open({str(seen)!r}).read().count("install") else '[{{"id": "memory-ledger@memory-ledger"}}]')
+''')
+    res = providers.install_brain("claude", str(fake))
+    assert res["ok"] and res["brain"]
+    lines = seen.read_text(encoding="utf-8").splitlines()
+    assert f"plugin marketplace add {providers.PLUGIN_ROOT}" in lines
+    assert "plugin install memory-ledger@memory-ledger" in lines

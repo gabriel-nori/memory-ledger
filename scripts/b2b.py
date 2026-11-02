@@ -109,6 +109,7 @@ DEFAULTS: dict[str, Any] = {
     "poll_seconds": 300,
     "do": DEFAULT_DO,
     "action": "claude",
+    "agent": "",
     "http": {"method": "POST", "url": "", "headers": {}, "body": ""},
     "script": {"name": "", "args": []},
 }
@@ -384,7 +385,7 @@ def save_config(patch: dict[str, Any]) -> dict[str, Any]:
         if bad:
             return {"ok": False, "error": trigger._unknown_msg("do", bad)}
         raw["do"] = do[:trigger.RUN_COMMAND_MAX]
-    row = {k: raw[k] for k in ("action", "http", "script") if k in raw}
+    row = {k: raw[k] for k in ("action", "agent", "http", "script") if k in raw}
     err = trigger._clean_action(patch, row, "b2b", VARIABLES)
     if err:
         return {"ok": False, "error": err}
@@ -1410,6 +1411,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--action", choices=trigger.ACTIONS, default=None,
                    help="what a received message runs: a Claude session (the default), "
                         "an API call or a script, as for the other triggers")
+    p.add_argument("--agent", default=None,
+                   help="the agent connector a Claude-action message runs on (docs/agents.md); "
+                        "'' for the default Claude")
     p.add_argument("--script", default=None,
                    help="the script to run, a bare filename in <brain>/scripts")
     p.add_argument("--arg", action="append", default=None,
@@ -1466,7 +1470,8 @@ def main(argv: list[str] | None = None) -> int:
                    "private_key": config_summary(cfg)["private_key"]}
     elif args.cmd == "config":
         patch: dict[str, Any] = {k: v for k, v in (
-            ("poll_seconds", args.interval), ("do", args.do), ("action", args.action))
+            ("poll_seconds", args.interval), ("do", args.do), ("action", args.action),
+            ("agent", args.agent))
             if v is not None}
         if args.script is not None or args.arg is not None:
             patch["script"] = {k: v for k, v in (("name", args.script), ("args", args.arg))

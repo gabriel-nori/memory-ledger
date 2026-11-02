@@ -345,6 +345,8 @@ class B2BConfig(Body):
     do: Any = Field(None, description="The run command for a received message; "
                                       "`{variables}` as for triggers, plus `b2b_*`.")
     action: Any = Field(None, description="`claude`, `http` or `script`.")
+    agent: Any = Field(None, description="The agent connector id a `claude` action runs on "
+                                          "(`GET /api/agents`); empty is the default Claude.")
     http: _obj = Field(None, description="`method`, `url`, `headers`, `body`.")
     script: _obj = Field(None, description="`name`, `args`.")
     clear: Optional[list[LooseStr]] = Field(None, description="`[\"private_key\"]` removes it.")
@@ -488,7 +490,9 @@ class AgentProviderKey(Body):
 class AgentProviderInstall(Body):
     kind: Text = T("The provider: `claude`, `gemini` or `codex`.")
     confirm: Any = Field(None, description="Must be `true`: this runs `npm install -g` on "
-                                           "this machine.")
+                                           "this machine (or changes the CLI's setup).")
+    brain: Any = Field(None, description="`false` skips giving the CLI the brain after the "
+                                         "install; by default it is done in the same step.")
 
 
 class AgentPlugin(Body):

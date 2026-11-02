@@ -139,7 +139,8 @@ def listing() -> list[dict[str, Any]]:
         out.append({"kind": kind, "title": p["title"], "install": install_command(kind),
                     "key_env": p["key_env"], "login": p["login"], "models": p["models"],
                     "has_key": bool(p["key_env"] and load_key(kind)),
-                    **(detect(kind) if p["bin"] else {})})
+                    **(detect(kind) if p["bin"] else {}),
+                    **brain_state(kind)})
     return out
 
 
@@ -164,6 +165,109 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
     raise ValueError(f"{kind!r} is not a CLI provider")
 
 
+# ---------------------------------------------------------------- brain access
+# How each CLI learns to read and write the brain on its own, outside the Agents tab:
+# Claude takes the memory-ledger plugin from this checkout's marketplace; Gemini and Codex
+# have no plugin of ours, so a marked block goes in the context file each reads at start.
+PLUGIN = "memory-ledger"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+CONTEXT_FILE = {"gemini": (".gemini", "GEMINI.md"), "codex": (".codex", "AGENTS.md")}
+BLOCK_START, BLOCK_END = "<!-- memory-ledger:begin -->", "<!-- memory-ledger:end -->"
+
+
+def context_path(kind: str) -> Path | None:
+    d = CONTEXT_FILE.get(kind)
+    return Path.home() / d[0] / d[1] if d else None
+
+
+def context_block() -> str:
+    g = f"python3 {Path(__file__).resolve().parent / 'graph.py'}"
+    q = f"python3 {Path(__file__).resolve().parent / 'brain_query.py'}"
+    return "\n".join([
+        BLOCK_START,
+        "## Memory Ledger (the owner's second brain)",
+        "The brain is yours to read and write, without asking first. Run these exactly as "
+        "written, never after a `cd`:",
+        f"- `{g} match-rules \"<what you are about to do>\"`: the owner's rules. Run it before acting.",
+        f"- `{g} recall \"<topic>\"`, `search \"<text>\"`, `get-node --id <id>`: facts, people, "
+        "projects, decisions.",
+        f"- `{q} open --mine`: the owner's open loops.",
+        f"- `{g} add-node --type <note|task|decision|person|...> --title ... --body ...` and "
+        "`add-edge`: store what is worth keeping from the work.",
+        BLOCK_END, ""])
+
+
+def _plugin_installed(exe: str) -> bool:
+    import json
+    import _textio
+    try:
+        r = _textio.run_text([exe, "plugin", "list", "--json"], timeout=60)
+        rows = json.loads(r.stdout or "[]")
+    except Exception:
+        return False
+    rows = rows if isinstance(rows, list) else []
+    return any(PLUGIN in str(x.get("id") or x.get("name") or "") for x in rows
+               if isinstance(x, dict))
+
+
+def brain_state(kind: str, bin_name: str = "") -> dict[str, Any]:
+    """Does this provider's CLI already have the brain wired in. Never raises."""
+    p = PROVIDERS.get(kind) or {}
+    if kind == "claude":
+        d = detect(kind, bin_name)
+        return {"brain": d["installed"] and _plugin_installed(d["path"])}
+    path = context_path(kind)
+    if path and p.get("bin"):
+        try:
+            return {"brain": BLOCK_START in path.read_text(encoding="utf-8")}
+        except OSError:
+            return {"brain": False}
+    return {}
+
+
+def install_brain(kind: str, bin_name: str = "", timeout: int = 120) -> dict[str, Any]:
+    """Give the provider's CLI the brain: the plugin for Claude, the context block for Gemini
+    and Codex. Safe to repeat. Writes under the person's home, so the caller has their yes."""
+    import _textio
+    p = PROVIDERS.get(kind) or {}
+    if not p.get("bin"):
+        return {"ok": False, "error": f"{kind!r} has no CLI to give the brain to"}
+    d = detect(kind, bin_name)
+    if not d["installed"]:
+        return {"ok": False, "error": f"{p['bin']} is not installed yet"}
+    if kind == "claude":
+        if _plugin_installed(d["path"]):
+            return {"ok": True, "brain": True, "already": True}
+        for argv in (["plugin", "marketplace", "add", str(PLUGIN_ROOT)],
+                     ["plugin", "install", f"{PLUGIN}@{PLUGIN}"]):
+            try:
+                r = _textio.run_text([d["path"], *argv], timeout=timeout)
+            except Exception as e:
+                return {"ok": False, "error": f"claude {' '.join(argv[:2])} did not finish: {e}"}
+            tail = ((r.stderr or "") + (r.stdout or "")).strip()[-400:]
+            # an already-added marketplace is fine; any other failure stops here
+            if r.returncode != 0 and "already" not in tail.lower():
+                return {"ok": False, "error": tail or f"claude {argv[1]} exited {r.returncode}",
+                        "command": "claude " + " ".join(argv)}
+        return {"ok": True, "brain": _plugin_installed(d["path"]),
+                "note": "restart open Claude Code sessions to load it"}
+    path = context_path(kind)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cur = path.read_text(encoding="utf-8") if path.exists() else ""
+        block = context_block()
+        if BLOCK_START in cur and BLOCK_END in cur:
+            head, rest = cur.split(BLOCK_START, 1)
+            new = head + block + rest.split(BLOCK_END, 1)[1].lstrip("\n")
+        else:
+            new = cur + ("\n" if cur and not cur.endswith("\n\n") else "") + block
+        if new != cur:
+            path.write_text(new, encoding="utf-8")
+    except OSError as e:
+        return {"ok": False, "error": f"could not write {path}: {e}"}
+    return {"ok": True, "brain": True, "path": str(path)}
+
+
 # ---------------------------------------------------------------- wizard actions
 def install(kind: str, timeout: int = 300) -> dict[str, Any]:
     """Run the provider's `npm install -g`. The caller has the person's explicit yes."""
@@ -182,7 +286,7 @@ def install(kind: str, timeout: int = 300) -> dict[str, Any]:
     tail = ((r.stderr or "") + (r.stdout or "")).strip()[-600:]
     if r.returncode != 0:
         return {"ok": False, "error": tail or f"npm exited {r.returncode}", "command": cmd}
-    return {"ok": True, "command": cmd, **detect(kind)}
+    return {"ok": True, "command": cmd, **detect(kind), **brain_state(kind)}
 
 
 def ping(kind: str, bin_name: str = "", timeout: int = 90) -> dict[str, Any]:

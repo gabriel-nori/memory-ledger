@@ -969,7 +969,28 @@ def agent_provider_install(data: m.AgentProviderInstall = body(m.AgentProviderIn
     if data.confirm is not True:
         return reply({"ok": False, "error": "installing runs a command here: send confirm: true",
                       "command": providers.install_command(kind)})
-    return reply(providers.install(kind))
+    res = providers.install(kind)
+    if res.get("ok") and data.brain is not False:
+        # the same yes covers the brain step, so a new CLI can read and write it at once
+        b = providers.install_brain(kind)
+        res = {**res, "brain": b.get("brain", False),
+               **({"brain_error": b["error"]} if not b.get("ok") else {})}
+    return reply(res)
+
+
+@router.post("/agent-provider-brain", tags=["agents"], summary="Give a provider's CLI the brain",
+             description="Claude: installs the memory-ledger plugin from this checkout. Gemini and "
+                         "Codex: writes a marked block to `~/.gemini/GEMINI.md` or "
+                         "`~/.codex/AGENTS.md`. Safe to repeat. Writes under the home folder, so "
+                         "the body must carry `confirm: true`.")
+def agent_provider_brain(data: m.AgentProviderInstall = body(m.AgentProviderInstall)):
+    kind, bad = _provider(data.kind)
+    if bad:
+        return reply(bad)
+    if data.confirm is not True:
+        return reply({"ok": False, "error": "this changes the CLI's own setup: send confirm: true"})
+    c = agents.connector(agents.load_config(), kind) or {}
+    return reply(providers.install_brain(kind, str(c.get("bin") or "")))
 
 
 @router.post("/agent-provider-test", tags=["agents"], summary="Ask a provider to say ok",

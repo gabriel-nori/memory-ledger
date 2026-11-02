@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "@/api/client";
+import { useAsync } from "@/hooks/useAsync";
 import {
   Badge,
   Button,
@@ -258,6 +259,8 @@ export function ActionEditor({
     () => setArgs(setting.script.args.join("\n")),
     [setting.script.args],
   );
+  const agents = useAsync((signal) => api.agents(signal), []);
+  const connectors = (agents.data?.connectors ?? []).filter((c) => c.enabled && c.kind !== "ollama");
   const http = (patch: Partial<TriggerEventSetting["http"]>) =>
     onChange({ http: { ...setting.http, ...patch } });
   const script = (patch: Partial<TriggerEventSetting["script"]>) =>
@@ -271,6 +274,23 @@ export function ActionEditor({
         value={setting.action}
         onChange={(a) => writable && onChange({ action: a })}
       />
+      {setting.action === "claude" && connectors.length ? (
+        <Field label="Agent" hint="Which agent runs this. The default is the Claude this trigger is set up with.">
+          {(id) => (
+            <Select
+              id={id}
+              aria-label={`Agent for ${name}`}
+              value={setting.agent ?? ""}
+              disabled={!writable}
+              options={[
+                { value: "", label: "Default (Claude)" },
+                ...connectors.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+              onChange={(e) => onChange({ agent: e.target.value })}
+            />
+          )}
+        </Field>
+      ) : null}
       {setting.action === "claude" ? (
         <RunCommandField
           hint={runHint}

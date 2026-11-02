@@ -147,6 +147,7 @@ read from; never the private key.
 | `poll_seconds` | `300` | 30 to 86,400 |
 | `do` | record it as a task or note, answer nothing | the run command for a received message |
 | `action`, `http`, `script` | `claude` | what a message runs, as for a [trigger event](trigger.md#actions) |
+| `agent` | empty | the [agent connector](agents.md#choosing-the-agent) a `claude` action runs on; empty is the default Claude |
 
 The settings page (**Settings → B2B**) does all of this: identity, the broker
 list, peers with the person each is, and the allowed list. Writing and

@@ -699,6 +699,8 @@ export interface TriggerEventSetting {
   /** The run command for a Claude action. Empty for a mention: the message is the request. */
   do: string;
   action: TriggerAction;
+  /** The agent connector a Claude action runs on. Empty: the trigger's own Claude. */
+  agent?: string;
   http: TriggerHttp;
   script: TriggerScriptRef;
 }
@@ -1153,6 +1155,7 @@ export interface B2BConfig {
   /** The run command for a received message, with `{variables}`. */
   do: string;
   action: TriggerAction;
+  agent?: string;
   http: TriggerHttp;
   script: TriggerScriptRef;
   variables: Record<string, string>;
@@ -1340,6 +1343,8 @@ export interface AgentProvider {
   installed?: boolean;
   path?: string;
   version?: string;
+  /** The CLI can already read and write the brain (the plugin, or the context block). */
+  brain?: boolean;
 }
 
 export interface AgentProviders extends Envelope {

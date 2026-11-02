@@ -22,6 +22,7 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
   const [notes, setNotes] = useState<Record<string, Note>>({});
   const [busy, setBusy] = useState("");
   const [confirm, setConfirm] = useState<AgentProvider | null>(null);
+  const [brainFor, setBrainFor] = useState<AgentProvider | null>(null);
   const [deleg, setDeleg] = useState<AgentDelegation | null>(null);
   const [out, setOut] = useState<Note | null>(null);
 
@@ -94,10 +95,12 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                 <strong>{p.title}</strong>
                 <Badge tone={p.installed ? "accent" : "warn"}>{p.installed ? `installed ${p.version ?? ""}`.trim() : "not installed"}</Badge>
                 {p.has_key ? <Badge tone="accent">API key saved</Badge> : <Badge>CLI sign-in</Badge>}
+                {p.installed ? <Badge tone={p.brain ? "accent" : "warn"}>{p.brain ? "brain connected" : "brain not connected"}</Badge> : null}
               </div>
               <p className="ml-settings__hint">
                 1. Install: <code>{p.install}</code> &nbsp; 2. Sign in: run <code>{p.login}</code> in a terminal, or save an
-                API key (<code>{p.key_env}</code>) below. 3. Test call. 4. Add the connector.
+                API key (<code>{p.key_env}</code>) below. 3. Connect the brain, so the CLI can read and write it. 4. Test call.
+                5. Add the connector.
               </p>
               <div className="ml-agents-card__fields">
                 <Field label="API key" hint="Optional. Sent to the CLI as an environment variable.">
@@ -124,6 +127,8 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                       return { text: "Key removed.", tone: "success" };
                     })}>Remove key</Button>
                 ) : null}
+                <Button size="sm" disabled={!writable || !!busy || !p.installed || !!p.brain}
+                  onClick={() => setBrainFor(p)}>{p.brain ? "Brain connected" : "Connect brain"}</Button>
                 <Button size="sm" disabled={!writable || !!busy || !p.installed}
                   onClick={() => run(p.kind, "test", async () => {
                     const r = await api.testProvider(p.kind);
@@ -141,18 +146,43 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
       {confirm ? (
         <ConfirmDialog
           title={`Install ${confirm.title}?`}
-          body={<>This runs <code>{confirm.install}</code> on this machine.</>}
+          body={<>This runs <code>{confirm.install}</code> on this machine, then connects the brain to it (the
+            plugin for Claude, a context block for Gemini and Codex), so it can read and write the brain.</>}
           confirmLabel="Run it"
           busy={busy.endsWith(":install")}
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
             const p = confirm;
             await run(p.kind, "install", async () => {
-              await api.installProvider(p.kind);
+              const r = await api.installProvider(p.kind);
               providers.reload();
-              return { text: "Installed.", tone: "success" };
+              return r.brain_error
+                ? { text: `Installed, but the brain was not connected: ${r.brain_error}`, tone: "error" }
+                : { text: "Installed, brain connected.", tone: "success" };
             });
             setConfirm(null);
+          }}
+        />
+      ) : null}
+
+      {brainFor ? (
+        <ConfirmDialog
+          title={`Connect the brain to ${brainFor.title}?`}
+          body={brainFor.kind === "claude"
+            ? <>This installs the memory-ledger plugin into Claude Code from this checkout.</>
+            : <>This adds a marked block to <code>{brainFor.kind === "gemini" ? "~/.gemini/GEMINI.md" : "~/.codex/AGENTS.md"}</code> with
+              the commands to read and write the brain. The rest of the file is left alone.</>}
+          confirmLabel="Connect"
+          busy={busy.endsWith(":brain")}
+          onCancel={() => setBrainFor(null)}
+          onConfirm={async () => {
+            const p = brainFor;
+            await run(p.kind, "brain", async () => {
+              const r = await api.installProviderBrain(p.kind);
+              providers.reload();
+              return { text: r.note ?? "Brain connected.", tone: "success" };
+            });
+            setBrainFor(null);
           }}
         />
       ) : null}

@@ -2770,3 +2770,59 @@ def test_a_good_wake_phrase_is_kept_its_spaces_tidied(home):
 def test_http_raw_invalid_url_is_a_trigger_error():
     with pytest.raises(trigger.TriggerError):
         trigger.http_raw("GET", "http://127.0.0.1/a\x00b", timeout=3)
+
+
+# ============================================================ agent connector
+GEMINI_ECHO = '''#!/usr/bin/env python3
+import sys
+sys.stdout.write("gemini did: " + sys.stdin.read()[:40])
+'''
+
+
+@pytest.fixture
+def gemini(home: Path, fake_exe, monkeypatch):
+    import agents
+    import flags
+    monkeypatch.setattr(flags, "enabled", lambda n: n == "ai_providers")
+    exe = fake_exe(home / "fake-gemini", GEMINI_ECHO)
+    res = agents.save_config({"connectors": [{"kind": "gemini", "bin": str(exe)}]})
+    assert res["ok"]
+    return res["config"]["connectors"][0]["id"]
+
+
+def _agent_cfg(cfg, agent):
+    out = copy.deepcopy(cfg)
+    out["slack"]["events"]["mention"]["agent"] = agent
+    return out
+
+
+def test_a_trigger_can_name_the_agent_it_runs_on(cfg, gemini, http, dispatch, con):
+    acfg = write_cfg(_agent_cfg(cfg, gemini))
+    ev = mention(acfg, "700.1", OWNER_ID, f"{TAG} hello")
+    rid = trigger.handle(ev, acfg, dispatch)["request_id"]
+    assert trigger.get_request(con, rid)["meta"]["agent"] == gemini
+    assert trigger.run_request(rid, acfg)["status"] == "done"
+    assert trigger.get_request(con, rid)["result"].startswith("gemini did:")
+
+
+def test_no_agent_named_runs_the_triggers_own_claude(cfg, http, dispatch, con, home):
+    ev = mention(cfg, "700.2", OWNER_ID, f"{TAG} hello")
+    rid = trigger.handle(ev, cfg, dispatch)["request_id"]
+    assert "agent" not in trigger.get_request(con, rid)["meta"]
+    assert trigger.run_request(rid, cfg)["ok"]
+    assert claude_calls(home)
+
+
+def test_an_agent_that_is_gone_fails_the_run_with_the_reason(cfg, http, dispatch, con):
+    acfg = write_cfg(_agent_cfg(cfg, "no-such"))
+    ev = mention(acfg, "700.3", OWNER_ID, f"{TAG} hello")
+    rid = trigger.handle(ev, acfg, dispatch)["request_id"]
+    assert trigger.run_request(rid, acfg)["status"] == "failed"
+    assert "no agent connector" in trigger.get_request(con, rid)["reason"]
+
+
+def test_saving_an_agent_that_does_not_exist_is_refused(cfg):
+    row: dict = {}
+    assert trigger._clean_action({"agent": "Bad Id!"}, row, "x")
+    assert not trigger._clean_action({"agent": "gemini"}, row, "x") and row["agent"] == "gemini"
+    assert "no agent connector" in trigger._action_complete({"action": "claude", "agent": "nope"}, "x")

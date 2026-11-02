@@ -214,9 +214,21 @@ describe("B2B", () => {
         poll_seconds: 120,
         do: b2bFixture.config.do,
         action: "claude",
+        agent: "",
         http: b2bFixture.config.http,
         script: b2bFixture.config.script,
       }),
+    );
+  });
+
+  it("picks the agent a received message runs on", async () => {
+    const { user } = renderApp(<B2BCard writable />, { route: "/settings" });
+    const rx = await panel("Receiving");
+    const pick = await rx.findByLabelText("Agent for a received B2B message");
+    await user.selectOptions(pick, "claude");
+    await user.click(rx.getByRole("button", { name: "Save receiving" }));
+    await waitFor(() =>
+      expect(sent("/api/b2b-config")).toContainEqual(expect.objectContaining({ agent: "claude" })),
     );
   });
 

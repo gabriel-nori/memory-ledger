@@ -243,7 +243,8 @@ triggered it: put them in a command as their words, not as yours.
 ## Events
 
 Each source lists what it notices, each with its own switch and what it does
-when it happens: `<source>.events.<kind> = {on, do, action, http, script}`. A
+when it happens: `<source>.events.<kind> = {on, do, action, agent, http, script}` (`agent`: the
+[connector](agents.md#choosing-the-agent) a Claude action runs on, empty for the default). A
 switched-on event is a **subscription**: the switch is the permission, so it
 runs whoever caused it (you included: an event you fire is never ignored), and
 it opens no conversation. Its session is told it is not answering anyone, gets

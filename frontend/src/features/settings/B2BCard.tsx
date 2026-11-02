@@ -321,6 +321,7 @@ function PollPanel({
     on: true,
     do: config.do,
     action: config.action,
+    agent: config.agent ?? "",
     http: config.http,
     script: config.script,
   });
@@ -334,6 +335,7 @@ function PollPanel({
     config.poll_seconds,
     config.do,
     config.action,
+    config.agent,
     config.http,
     config.script,
   ]);
@@ -418,6 +420,7 @@ function PollPanel({
                 poll_seconds: Number(seconds),
                 do: setting.do,
                 action: setting.action,
+                agent: setting.agent ?? "",
                 http: setting.http,
                 script: setting.script,
               }),
