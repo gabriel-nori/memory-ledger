@@ -182,9 +182,10 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
             cmd += ["-m", model]
         return cmd
     if kind == "antigravity":
-        # `-p ""` runs headless and the prompt is read from stdin. Without a permission flag a
-        # tool that needs approval is soft-denied (agy has no plan mode), which is the read-only run.
-        cmd = [exe, "-p", "", "--input-format", "text", "--output-format", "text"]
+        # `-p` runs headless; agy ignores stdin ("empty prompt"), so cli_invocation puts the prompt
+        # right after it. Without a permission flag a tool that needs approval is soft-denied
+        # (agy has no plan mode), which is the read-only run.
+        cmd = [exe, "-p", "--output-format", "text"]
         if full:
             cmd.append("--dangerously-skip-permissions")
         if model:
@@ -197,6 +198,17 @@ def cli_command(kind: str, c: dict[str, Any], model: str, full: bool) -> list[st
             cmd += ["-m", model]
         return cmd + ["-"]
     raise ValueError(f"{kind!r} is not a CLI provider")
+
+
+def cli_invocation(kind: str, c: dict[str, Any], model: str, full: bool,
+                   prompt: str) -> tuple[list[str], str | None]:
+    """(argv, stdin) for one turn. Gemini and Codex read the prompt on stdin; agy only takes it
+    as the value of -p."""
+    cmd = cli_command(kind, c, model, full)
+    if kind == "antigravity":
+        cmd.insert(cmd.index("-p") + 1, prompt)
+        return cmd, None
+    return cmd, prompt
 
 
 # ---------------------------------------------------------------- brain access
@@ -353,10 +365,11 @@ def ping(kind: str, bin_name: str = "", timeout: int = 90) -> dict[str, Any]:
     if kind == "claude":
         exe = _platform.resolve_bin(bin_name or p["bin"])
         cmd = [exe, "-p", "--output-format", "text", "--model", p["default_model"]]
+        stdin = "Reply with the single word: ok"
     else:
-        cmd = cli_command(kind, {"bin": bin_name}, "", False)
+        cmd, stdin = cli_invocation(kind, {"bin": bin_name}, "", False, "Reply with the single word: ok")
     try:
-        r = _textio.run_text(cmd, timeout=timeout, input="Reply with the single word: ok",
+        r = _textio.run_text(cmd, timeout=timeout, input=stdin,
                              env=child_env(kind, dict(os.environ)))
     except Exception as e:
         return {"ok": False, "error": redact(f"the call did not finish: {e}", kind)}

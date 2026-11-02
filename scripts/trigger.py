@@ -2240,14 +2240,15 @@ def run_agent(con, req: dict, conn: dict, cfg: dict) -> dict:
     t0 = _started(con, req, f"agent {conn['id']}")
     if t0 is None:
         return {"ok": False, "request_id": req["id"], "status": "cancelled"}
-    cmd = providers.cli_command(conn["kind"], conn, conn.get("default_model") or "", True)
+    cmd, stdin = providers.cli_invocation(conn["kind"], conn, conn.get("default_model") or "", True,
+                                          build_prompt(req, cfg))
     timeout = max(30, int(conn.get("timeout_s") or 900))
     _set_request(con, req["id"], command=json.dumps(cmd, ensure_ascii=False),
                  cwd=session_cwd(cfg))
     env = providers.child_env(conn["kind"], {**os.environ, "MEMORY_LEDGER_REQUEST_ID": req["id"],
                                              "MEMORY_LEDGER_TRIGGER_SOURCE": req["source"]})
     try:
-        pr = run_watched(con, req["id"], cmd, timeout, input=build_prompt(req, cfg), env=env,
+        pr = run_watched(con, req["id"], cmd, timeout, input=stdin, env=env,
                          cwd=session_cwd(cfg))
     except Cancelled:
         return {"ok": False, "request_id": req["id"], "status": "cancelled"}

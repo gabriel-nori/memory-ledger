@@ -1342,7 +1342,8 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
     cost are not known. The saved API key, if any, rides in the child's env."""
     kind = c["kind"]
     log = _Log(con, reply["id"])
-    cmd = providers.cli_command(kind, c, reply["model"], bool(reply["full_tools"]))
+    cmd, stdin = providers.cli_invocation(kind, c, reply["model"], bool(reply["full_tools"]),
+                                          turn["system"] + "\n\n" + turn["prompt"])
     env = _textio.child_env(providers.child_env(kind, {
         **os.environ, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
         "MEMORY_LEDGER_AGENT_CONV": reply["conv_id"]}))
@@ -1360,7 +1361,7 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
     timer = threading.Timer(int(c.get("timeout_s") or 900), _platform.kill_tree, (proc,))
     timer.start()
     try:
-        out, err = proc.communicate(turn["system"] + "\n\n" + turn["prompt"])
+        out, err = proc.communicate(stdin)
     finally:
         timed_out = not timer.is_alive() and proc.returncode not in (0, None)
         timer.cancel()
