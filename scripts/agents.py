@@ -314,6 +314,33 @@ def ollama_models(c: dict[str, Any], timeout: float = 2.0) -> tuple[list[str], s
         return [], f"could not reach {c['url']}: {e}"
 
 
+_CLI_MODELS: dict[str, tuple[float, list[str]]] = {}   # kind -> (fetched at, models)
+
+
+def cli_models(c: dict[str, Any]) -> list[str]:
+    """The models an Antigravity or Codex install offers, read from the CLI itself (cached
+    5 minutes). Empty when it cannot say: the CLI then picks its own default."""
+    kind = c.get("kind")
+    hit = _CLI_MODELS.get(kind)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    models: list[str] = []
+    try:
+        if kind == "antigravity":
+            r = subprocess.run([providers._exe(kind, c.get("bin") or ""), "models"],
+                               capture_output=True, text=True, timeout=15)
+            models = [ln.split("\t")[0].strip() for ln in r.stdout.splitlines() if "\t" in ln]
+        elif kind == "codex":
+            home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+            data = json.loads((home / "models_cache.json").read_text("utf-8"))
+            rows = [m for m in data.get("models") or [] if m.get("visibility") == "list" and m.get("slug")]
+            models = [m["slug"] for m in sorted(rows, key=lambda m: m.get("priority", 0))]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    _CLI_MODELS[kind] = (time.time(), models)
+    return models
+
+
 def connectors_payload(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Every connector with the models it offers right now."""
     cfg = cfg or load_config()
@@ -326,6 +353,8 @@ def connectors_payload(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]
             row["available"] = not problem
             if not row.get("default_model") and models:
                 row["default_model"] = models[0]
+        elif c["kind"] in ("antigravity", "codex") and c.get("enabled") and not row.get("models"):
+            row["models"] = cli_models(c)
         out.append(row)
     return out
 
