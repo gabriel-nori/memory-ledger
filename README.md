@@ -569,7 +569,7 @@ hamburger menu on the left (`m` toggles it):
   or a bare URL), all rendered as text and links only, never as HTML. The
   composer has buttons for each, and ⌘B / ⌘I / ⌘U / ⌘K. A thread opens at its
   latest message; older ones load as you scroll up.
-- **Agents** — [chat with Claude or a local Ollama model](docs/agents.md). Each
+- **Agents** — [chat with Claude, a local Ollama model, or Gemini and ChatGPT (flag `ai_providers`)](docs/agents.md). Each
   turn is one stateless call given your message, the last few exchanges and what
   the brain recalls for it; every exchange is written back to the graph. The list
   shows a spinner while a reply runs, **?** when the agent is waiting on you and

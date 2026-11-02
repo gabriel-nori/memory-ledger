@@ -1,7 +1,8 @@
 # Agents
 
 The **Agents** tab is a chat with a model from inside the brain UI: Claude
-through the `claude` CLI, or any model on an Ollama host. The code is
+through the `claude` CLI, any model on an Ollama host, or (behind the
+`ai_providers` flag) Gemini and ChatGPT through their own CLIs. The code is
 `scripts/agents.py`, the routes are `/api/agent*`, and the UI is
 `frontend/src/features/agents/`.
 
@@ -146,10 +147,11 @@ Behind the `ai_providers` flag (Settings > Flags), `kind` can also be `gemini` o
 binary, npm package, models, key variable). Install with
 `npm install -g @google/gemini-cli` or `npm install -g @openai/codex`.
 
-- **Sign-in is the CLI's own** (OAuth) by default. A connector may instead use an
-  API key (`GEMINI_API_KEY`, `CODEX_API_KEY`): it is saved one file per provider
-  under `<home>/secrets/`, mode 600, and reaches the CLI only as an environment
-  variable. It is never in `agents.json`, the graph or a log, and it is masked
+- **Sign-in is the CLI's own** (OAuth) by default. A provider may instead use an
+  API key (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `CODEX_API_KEY`): it is read from
+  `<home>/secrets/<provider>.key` (one file per provider, mode 600, written by
+  `providers.save_key`; there is no UI for it yet) and reaches the CLI only as an
+  environment variable. It is never in `agents.json`, the graph or a log, and it is masked
   in any error shown.
 - **Tools**: read-only runs Gemini with `--approval-mode plan` and Codex with
   `--sandbox read-only`; tools on runs `yolo` and `workspace-write`.
@@ -175,15 +177,20 @@ binary, npm package, models, key variable). Install with
     {"id": "claude", "name": "Claude", "kind": "claude", "enabled": true, "bin": "claude",
      "models": ["claude-opus-5-5", "claude-sonnet-5-5"], "default_model": "claude-sonnet-5-5", "timeout_s": 900},
     {"id": "ollama", "name": "Ollama", "kind": "ollama", "enabled": true,
-     "url": "http://127.0.0.1:11434", "default_model": "", "timeout_s": 600, "max_rounds": 8}
+     "url": "http://127.0.0.1:11434", "default_model": "", "timeout_s": 600, "max_rounds": 8},
+    {"id": "gemini", "name": "Gemini", "kind": "gemini", "enabled": true, "bin": "gemini",
+     "default_model": "auto", "timeout_s": 900}
   ]
 }
 ```
 
-A connector is one backend. Two Ollama hosts are two connectors. An Ollama
+A connector is one backend. Two Ollama hosts are two connectors. The `gemini` and
+`codex` kinds are refused while `ai_providers` is off (the example above shows a
+Gemini one for the on case; `models` is fixed by `providers.py`). An Ollama
 connector's models are whatever its host has pulled (`/api/tags`), asked for
 each time the tab loads. To add a new `kind` (an OpenAI-compatible API, say),
-add it to `KINDS`, give `_clean_connector` its fields, and register a
+add it to `KINDS` (a CLI one also goes in `providers.PROVIDERS`), give
+`_clean_connector` its fields, and register a
 `run_<kind>(con, reply, connector, turn)` in `RUNNERS` that returns
 `{text, events, tokens, cost_usd, cost_estimated}`.
 

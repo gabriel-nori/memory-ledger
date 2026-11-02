@@ -11,7 +11,7 @@ These pages are the reference: how it works and how to change it.
 | [api.md](api.md) | the local HTTP server — the FastAPI app, its envelope, its venv, and how to extend it. Its interactive reference is `/api/docs` on a running server, generated from the routes |
 | [frontend.md](frontend.md) | the React single-page app — layout, why its build is committed, how to work on it, and what the two test suites cover |
 | [trigger.md](trigger.md) | summoning the brain from Slack, Jira and GitHub, and custom block-polls for anything else — Socket Mode and polling, the GitHub PR events you pick, the per-conversation gate, the request audit log, the headless `claude -p` dispatch, and setup |
-| [agents.md](agents.md) | the Agents tab — one stateless call per turn, context from recall and a configurable window, read-only vs tools-on per conversation, connectors (Claude, Ollama), the live log and cost |
+| [agents.md](agents.md) | the Agents tab — one stateless call per turn, context from recall and a configurable window, read-only vs tools-on per conversation, connectors (Claude, Ollama, and Gemini and Codex behind `ai_providers`), the live log and cost |
 | [usage.md](usage.md) | the usage ingest and report — session logs to `usage-week` nodes, the price-table estimate, the throttled SessionStart run, the checkpoint |
 | [performance.md](performance.md) | measured latency, storage, growth projections, scaling, known limits |
 | [neo4j.md](neo4j.md) | running a real graph database instead of the SQLite mirror — `neo4j_local.py up` (Docker, one command), the `backend` setting, and whether it is worth it |
