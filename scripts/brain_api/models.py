@@ -302,10 +302,7 @@ class TriggerReprocess(Body):
 
 class PortalAction(Body):
     id: Text = T("The portal trigger's id.")
-    action: Text = T("`regenerate`, `revoke`, `ban` or `unban`.")
-    email: Text = T("For ban / unban: the visitor's email.")
-    ip: Text = T("For ban / unban: the visitor's IP.")
-    reason: Text = T("For ban: why.")
+    action: Text = T("`regenerate` or `revoke`.")
 
 
 class TriggerCancel(Body):

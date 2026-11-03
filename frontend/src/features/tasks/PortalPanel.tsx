@@ -5,8 +5,7 @@ import { Badge, Button, StatusMessage } from "@/components";
 import type { PortalTrigger } from "@/api/types";
 
 /**
- * The portal triggers' controls: regenerate or revoke the token, and lift or
- * place a ban. Shown only when a portal trigger exists. A new token is shown
+ * The portal triggers' controls: regenerate or revoke the token. Shown only when a portal trigger exists. A new token is shown
  * once, here, and never read back.
  */
 export function PortalPanel() {
@@ -27,20 +26,16 @@ function PortalRow({ t, onChanged }: { t: PortalTrigger; onChanged: () => void }
   const [sure, setSure] = useState<"" | "regenerate" | "revoke">("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
-  const [who, setWho] = useState("");
 
-  const run = async (action: "regenerate" | "revoke" | "ban" | "unban", target = "") => {
+  const run = async (action: "regenerate" | "revoke") => {
     setBusy(true);
     setErr("");
     setMsg("");
     try {
-      const v = target || who.trim();
-      const body = v.includes("@") ? { email: v } : { ip: v };
-      const res = await api.portalAction({ id: t.id, action, ...(action === "ban" || action === "unban" ? body : {}) });
+      const res = await api.portalAction({ id: t.id, action });
       if (!res.ok) throw new Error(res.error || "refused");
       setMsg(res.token ? `New token (shown once): ${res.token}` : `${action} done`);
       setSure("");
-      if (action === "ban") setWho("");
       onChanged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -55,6 +50,8 @@ function PortalRow({ t, onChanged }: { t: PortalTrigger; onChanged: () => void }
         <b>{t.id}</b>
         <Badge>{t.enabled ? "on" : "off"}</Badge>
         <Badge tone={t.token === "set" ? "accent" : undefined}>token {t.token}</Badge>
+        {t.bind_ips ? <Badge>{t.bind_ips.join(", ")}</Badge> : null}
+        {t.per_minute ? <Badge>{t.per_minute}/min</Badge> : null}
         {t.quota && !t.quota.available ? <Badge>quota out until {t.quota.resume_at}</Badge> : null}
       </div>
       <div className="ml-portal__actions">
@@ -70,26 +67,7 @@ function PortalRow({ t, onChanged }: { t: PortalTrigger; onChanged: () => void }
             <Button size="sm" variant="danger" onClick={() => setSure("revoke")}>Revoke token</Button>
           </>
         )}
-        <input
-          className="ml-portal__who"
-          value={who}
-          onChange={(e) => setWho(e.target.value)}
-          placeholder="email or IP"
-          aria-label="email or IP to ban"
-        />
-        <Button size="sm" variant="danger" disabled={busy || !who.trim()} onClick={() => run("ban")}>Ban</Button>
       </div>
-      {t.ban_list?.filter((b) => !b.lifted_at).map((b) => (
-        <div key={b.id} className="ml-portal__ban">
-          <span>{b.email || b.ip} — {b.reason}</span>
-          <Button size="sm" disabled={busy} onClick={() => run("unban", b.email || b.ip)}>Unban</Button>
-        </div>
-      ))}
-      {t.strikes?.length ? (
-        <p className="ml-portal__strikes">
-          Strikes: {t.strikes.map((s) => `${s.email} ${s.count}/3`).join(" · ")}
-        </p>
-      ) : null}
       {msg ? <StatusMessage tone="info">{msg}</StatusMessage> : null}
       {err ? <StatusMessage tone="error">{err}</StatusMessage> : null}
     </div>

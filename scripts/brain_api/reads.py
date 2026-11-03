@@ -354,7 +354,7 @@ def custom_triggers():
 
 
 @router.get("/portal-triggers", tags=["trigger"],
-            summary="Portal triggers: token state, quota, active bans and strikes",
+            summary="Portal triggers: token state, allowed IPs, throttle and quota",
             description="One row per portal trigger file. The token itself is never returned.")
 def portal_triggers():
     con = portal_trigger.db()

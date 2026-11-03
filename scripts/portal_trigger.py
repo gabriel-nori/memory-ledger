@@ -2,18 +2,23 @@
 """Portal triggers: a chat for visitors of the owner's site (docs/trigger.md#portal-triggers).
 
 A `portal` trigger is one file, `<home>/triggers/<id>.yaml`, next to the custom
-ones. Switched on, the server opens ONE HTTP listener for it, on its own port,
-serving only its own routes (`/v1/...`). The only client is the portal's
-backend, with a bearer token kept here as a sha256 hash. Each message becomes a
-request on `portal:<id>`, like any other trigger's, and a headless session
-(skill `portal-respond`) answers it through `trigger.py portal reply`.
+ones, and it is one way in: its own port, its own allowed IPs and CIDRs, its own
+bearer token (kept here as a sha256 hash) and its own throttle. Another way in
+is another file. Switched on, the server opens ONE HTTP listener for it, serving
+only its own routes (`/v1/...`). The only client is the portal's backend.
+
+The ledger takes a message, an attachment and the visitor's `user_id`, and
+gives back the answer with the skill's verdict (`forbidden`, ...). Bans,
+strikes, appeals and the chat limits belong to the portal, not to this file.
+Each message becomes a request on `portal:<id>`, like any other trigger's, and
+a headless session (skill `portal-respond`) answers it through
+`trigger.py portal reply`.
 
 Contract: docs/portal-contract.md section 1. Stdlib only, like the engine.
 
     python3 scripts/trigger.py portal new|list|show|validate|enable|disable [<id>]
     python3 scripts/trigger.py portal regenerate|revoke <id>
-    python3 scripts/trigger.py portal ban|unban|bans <id> [--email E] [--ip I]
-    python3 scripts/trigger.py portal calls|appeals|purge-calls <id>
+    python3 scripts/trigger.py portal calls|purge-calls <id> [--user U]
     python3 scripts/trigger.py portal reply --request <rid> --class <c> --lang <l> --text <t|->
     python3 scripts/trigger.py portal public [--query Q]
 """
@@ -24,16 +29,17 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import random
 import re
 import secrets as _secrets
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import threading
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from email import message_from_bytes, policy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,23 +58,22 @@ SOURCE_PREFIX = "portal:"
 PORT_RANGE = (8801, 8899)
 LANGS = ("pt", "en", "es")
 CLASSES = ("in_scope", "silly", "recruiter", "forbidden", "abuse")
-STRIKES_TO_BAN = 3
 TEXT_MAX = 4000                    # a message (contract 5.5)
 ATTACHMENTS_MAX = 5                # per message (contract 5.5)
 DEFAULT_BUDGET_USD = 5             # contract 5.11
+DEFAULT_PER_MINUTE = 300           # calls a minute on one trigger; the portal polls every 2 s per open chat
+AUTH_FAILS_PER_MINUTE = 20         # wrong tokens a minute from one peer
 JSON_BODY_MAX = 256 * 1024         # any body that is not an upload
 HISTORY_IN_PROMPT = 10
 PUBLIC_MAX = 20
 RESUME_MAX = timedelta(days=8)     # an ollama answer further out than this is not believed
 ALLOWED_TYPES = ("application/pdf", "image/png", "image/jpeg", "image/webp")
-UNLOGGED_HEADERS = ("authorization", "cookie", "proxy-authorization")
-CLIENT_IP_HEADER = "X-Client-IP"   # the visitor's address, from the portal (contract 5.1)
-ERRORS = {"bad_request": 400, "unauthorized": 401, "ip_not_allowed": 403, "banned": 403,
-          "not_found": 404, "too_large": 413, "unsupported_type": 415,
-          "malware_detected": 422, "quota_exhausted": 429, "unavailable": 503}
+UNLOGGED_HEADERS = ("authorization", "cookie", "proxy-authorization", "x-client-ip")
+ERRORS = {"bad_request": 400, "unauthorized": 401, "ip_not_allowed": 403, "not_found": 404,
+          "too_large": 413, "unsupported_type": 415, "malware_detected": 422,
+          "quota_exhausted": 429, "rate_limited": 429, "unavailable": 503}
 LIMIT_RE = re.compile(r"(?i)(usage|rate|session|weekly|daily)?\s*limit\s+(reached|hit|exceeded)|"
                       r"hit your (usage )?limit|out of (extra )?usage|quota (exceeded|exhausted)")
-EMAIL_RE = re.compile(r"[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s.]{2,}")
 USER_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
 MAGIC = {"application/pdf": (b"%PDF-",), "image/png": (b"\x89PNG\r\n\x1a\n",),
          "image/jpeg": (b"\xff\xd8\xff",)}
@@ -78,84 +83,46 @@ QUOTA_TEXT = {
     "en": "All my tokens ran out for now. I went to take a nap and I will be back at {at}.",
     "es": "Por ahora se me acabaron todos los tokens. Me fui a dormir una siesta y vuelvo a las {at}.",
 }
-BAN_REASON = {
-    "pt": "Conta bloqueada por insistir em pedidos de dados pessoais ou privados.",
-    "en": "Blocked for repeatedly asking for personal or private data.",
-    "es": "Bloqueado por insistir en pedir datos personales o privados.",
-}
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS portal_salt (
-    id   INTEGER PRIMARY KEY CHECK (id = 1),
-    salt TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS portal_token (
     trigger_id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL,              -- sha256 hex; the plain value is never kept
     created_at TEXT NOT NULL,
     revoked_at TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS portal_chat (
-    chat_id    TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS portal_user (
     trigger_id TEXT NOT NULL,
-    user_id    TEXT NOT NULL,
-    name       TEXT NOT NULL,
-    email      TEXT NOT NULL,
+    user_id    TEXT NOT NULL,              -- minted by the portal; all the ledger knows of a visitor
     lang       TEXT NOT NULL,
     created_at TEXT NOT NULL,
     since_joke INTEGER NOT NULL DEFAULT 0, -- in-scope replies since the last joke
     joke_every INTEGER NOT NULL DEFAULT 0, -- the N this round, drawn at random
-    UNIQUE(trigger_id, user_id)
+    PRIMARY KEY (trigger_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS portal_message (
     seq        INTEGER PRIMARY KEY AUTOINCREMENT,
     id         TEXT NOT NULL UNIQUE,
-    chat_id    TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
     trigger_id TEXT NOT NULL,
     role       TEXT NOT NULL,              -- user | assistant | system
     text       TEXT NOT NULL,
     lang       TEXT NOT NULL,
     status     TEXT NOT NULL,              -- queued | done | error (working is read off the request)
+    verdict    TEXT NOT NULL DEFAULT '',   -- on an assistant message: the class the skill gave the question
     attachments TEXT NOT NULL DEFAULT '[]',
     request_id TEXT NOT NULL DEFAULT '',
-    client_ip  TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_portal_message_chat ON portal_message(chat_id, seq);
+CREATE INDEX IF NOT EXISTS idx_portal_message_user ON portal_message(trigger_id, user_id, seq);
 CREATE TABLE IF NOT EXISTS portal_attachment (
     id         TEXT PRIMARY KEY,
-    chat_id    TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
     trigger_id TEXT NOT NULL,
     name       TEXT NOT NULL,
     bytes      INTEGER NOT NULL,
     type       TEXT NOT NULL,
     path       TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS portal_ban (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    trigger_id TEXT NOT NULL,
-    kind       TEXT NOT NULL,              -- email | ip
-    value      TEXT NOT NULL,
-    reason     TEXT NOT NULL DEFAULT '',
-    by         TEXT NOT NULL DEFAULT '',
-    at         TEXT NOT NULL,
-    lifted_at  TEXT NOT NULL DEFAULT ''    -- kept, never deleted: '' = in force
-);
-CREATE INDEX IF NOT EXISTS idx_portal_ban ON portal_ban(trigger_id, kind, value);
-CREATE TABLE IF NOT EXISTS portal_strike (
-    trigger_id TEXT NOT NULL,
-    email      TEXT NOT NULL,
-    count      INTEGER NOT NULL DEFAULT 0,
-    updated    TEXT NOT NULL,
-    PRIMARY KEY (trigger_id, email)
-);
-CREATE TABLE IF NOT EXISTS portal_appeal (
-    id         TEXT PRIMARY KEY,
-    trigger_id TEXT NOT NULL,
-    chat_id    TEXT NOT NULL,
-    text       TEXT NOT NULL,
-    task_id    TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS portal_state (
@@ -173,11 +140,15 @@ CREATE TABLE IF NOT EXISTS portal_call (
     body       TEXT NOT NULL DEFAULT '',
     status     INTEGER NOT NULL,
     response   TEXT NOT NULL DEFAULT '',
-    chat_id    TEXT NOT NULL DEFAULT '',
+    user_id    TEXT NOT NULL DEFAULT '',
     request_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_portal_call ON portal_call(trigger_id, id);
 """
+
+# What the first portal-trigger draft kept here and the portal owns now: chats with a
+# name and an email, bans, strikes, appeals. Nothing was ever released with them.
+OBSOLETE = ("portal_salt", "portal_ban", "portal_strike", "portal_appeal", "portal_chat")
 
 
 class PortalError(Exception):
@@ -191,6 +162,13 @@ class PortalError(Exception):
 
 def db():
     con = trigger.db()
+    have = {r["name"] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    stale = [t for t in OBSOLETE if t in have]
+    if "portal_message" in have and "user_id" not in {
+            r["name"] for r in con.execute("PRAGMA table_info(portal_message)")}:
+        stale += ["portal_message", "portal_attachment", "portal_call"]   # they hung off a chat
+    for table in stale:
+        con.execute(f"DROP TABLE {table}")
     con.executescript(SCHEMA)
     con.commit()
     return con
@@ -236,8 +214,10 @@ def settings(defn: dict) -> dict:
     att = defn.get("attachments") if isinstance(defn.get("attachments"), dict) else {}
     jk = defn.get("jokes") if isinstance(defn.get("jokes"), dict) else {}
     rate = defn.get("rate") if isinstance(defn.get("rate"), dict) else {}
+    thr = defn.get("throttle") if isinstance(defn.get("throttle"), dict) else {}
     ips = defn.get("bind_ips", ["*"])
     return {"port": defn.get("port"), "bind_ips": [ips] if isinstance(ips, str) else list(ips),
+            "per_minute": thr.get("per_minute", DEFAULT_PER_MINUTE),
             "daily_budget_usd": rate.get("daily_budget_usd", DEFAULT_BUDGET_USD), "tz": rate.get("tz") or "UTC",
             "max_mb": att.get("max_mb", 10), "types": list(att.get("types") or ALLOWED_TYPES),
             "joke_min": jk.get("every_n_min", 6), "joke_max": jk.get("every_n_max", 12),
@@ -272,6 +252,10 @@ def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
         errors.append('bind_ips is "*" or a list of IPs and CIDRs')
     elif "*" in ips and len(ips) > 1:
         errors.append('bind_ips: "*" stands alone')
+    thr = defn.get("throttle", {})
+    pm = thr.get("per_minute", DEFAULT_PER_MINUTE) if isinstance(thr, dict) else None
+    if isinstance(pm, bool) or not isinstance(pm, int) or pm < 1:
+        errors.append("throttle.per_minute is a whole number, 1 or more")
     rate = defn.get("rate")
     budget = rate.get("daily_budget_usd", DEFAULT_BUDGET_USD) if isinstance(rate, dict) else None
     if isinstance(budget, bool) or not isinstance(budget, (int, float)) or budget <= 0:
@@ -305,7 +289,7 @@ def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
     if not isinstance(skill, str) or not graph.script_name_ok(skill):
         errors.append("skill is a skill name")
     for key in defn:
-        if key not in ("id", "type", "name", "enabled", "port", "bind_ips", "rate", "attachments",
+        if key not in ("id", "type", "name", "enabled", "port", "bind_ips", "throttle", "rate", "attachments",
                        "jokes", "skill"):
             warnings.append(f"{key} is not a portal field and is ignored")
     return {"ok": not errors, "errors": errors, "warnings": warnings}
@@ -317,6 +301,7 @@ name: {id}
 enabled: false          # trigger.py portal enable {id}
 port: {port}            # 8801-8899, one per trigger
 bind_ips: ["*"]         # or a list of IPs and CIDRs, checked against the TCP peer
+throttle: {{per_minute: 300}}   # calls a minute on this way in; over it: 429 rate_limited
 rate: {{daily_budget_usd: 5, tz: America/Sao_Paulo}}
 attachments: {{max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}}
 jokes: {{every_n_min: 6, every_n_max: 12}}
@@ -376,94 +361,6 @@ def peer_allowed(peer: str, bind_ips: list) -> bool:
         ip = ip.ipv4_mapped
     return any(ip.version == n.version and ip in n
                for n in (ipaddress.ip_network(e, strict=False) for e in bind_ips))
-
-
-def _norm_ip(value: str) -> str:
-    try:
-        ip = ipaddress.ip_address((value or "").strip())
-    except ValueError:
-        return ""
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    return str(ip)
-
-
-def ip_key(con, value: str) -> str:
-    """A visitor's address as it is kept: salted and hashed (contract 5.1).
-    Already a key (64 hex) passes through, so a ban listed can be lifted."""
-    if re.fullmatch(r"[0-9a-f]{64}", value or ""):
-        return value
-    ip = _norm_ip(value)
-    if not ip:
-        return ""
-    row = con.execute("SELECT salt FROM portal_salt WHERE id=1").fetchone()
-    if not row:
-        con.execute("INSERT OR IGNORE INTO portal_salt(id, salt) VALUES(1, ?)",
-                    (_secrets.token_hex(16),))
-        con.commit()
-        row = con.execute("SELECT salt FROM portal_salt WHERE id=1").fetchone()
-    return hashlib.sha256((row["salt"] + ip).encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------- bans
-def is_banned(con, tid: str, email: str = "", ip: str = "") -> str:
-    """The reason's kind ('email' or 'ip') when either matches, else ''."""
-    for kind, value in (("email", (email or "").lower()), ("ip", ip_key(con, ip))):
-        if value and con.execute(
-                "SELECT 1 FROM portal_ban WHERE trigger_id=? AND kind=? AND value=? "
-                "AND lifted_at=''", (tid, kind, value)).fetchone():
-            return kind
-    return ""
-
-
-def ban(con, tid: str, email: str = "", ip: str = "", reason: str = "", by: str = "") -> dict:
-    added = []
-    for kind, value in (("email", (email or "").lower().strip()), ("ip", ip_key(con, ip))):
-        if value and not is_banned(con, tid, **{kind: value}):
-            con.execute("INSERT INTO portal_ban(trigger_id, kind, value, reason, by, at) "
-                        "VALUES(?,?,?,?,?,?)", (tid, kind, value, reason, by, trigger.now_iso()))
-            added.append(kind)
-    con.commit()
-    return {"ok": bool(email or ip), "id": tid, "banned": added}
-
-
-def unban(con, tid: str, email: str = "", ip: str = "", by: str = "") -> dict:
-    n = 0
-    for kind, value in (("email", (email or "").lower().strip()), ("ip", ip_key(con, ip))):
-        if value:
-            n += con.execute("UPDATE portal_ban SET lifted_at=? WHERE trigger_id=? AND kind=? "
-                             "AND value=? AND lifted_at=''",
-                             (trigger.now_iso(), tid, kind, value)).rowcount
-    if email:   # a second chance starts the count again
-        con.execute("DELETE FROM portal_strike WHERE trigger_id=? AND email=?",
-                    (tid, email.lower().strip()))
-    con.commit()
-    return {"ok": True, "id": tid, "lifted": n}
-
-
-def bans(con, tid: str, all_: bool = False) -> list:
-    q = "SELECT * FROM portal_ban WHERE trigger_id=?" + ("" if all_ else " AND lifted_at=''")
-    return [dict(r) for r in con.execute(q + " ORDER BY id", (tid,))]
-
-
-def strikes(con, tid: str) -> list:
-    return [dict(r) for r in con.execute(
-        "SELECT email, count, updated FROM portal_strike WHERE trigger_id=? ORDER BY updated DESC",
-        (tid,))]
-
-
-def add_strike(con, tid: str, email: str) -> int:
-    email = email.lower()
-    con.execute("INSERT INTO portal_strike(trigger_id, email, count, updated) VALUES(?,?,1,?) "
-                "ON CONFLICT(trigger_id, email) DO UPDATE SET count=count+1, updated=?",
-                (tid, email, trigger.now_iso(), trigger.now_iso()))
-    con.commit()
-    return con.execute("SELECT count FROM portal_strike WHERE trigger_id=? AND email=?",
-                       (tid, email)).fetchone()["count"]
-
-
-def ban_notice(lang: str) -> dict:
-    return {"reason": BAN_REASON.get(lang, BAN_REASON["en"]), "appeal": True}
 
 
 # ---------------------------------------------------------------- quota
@@ -604,6 +501,30 @@ def neutralise(text: str) -> str:
     return text.replace("<<<", "< < <").replace(">>>", "> > >")
 
 
+# ---------------------------------------------------------------- throttle
+class Throttle:
+    """Calls per minute per key, counted in memory: a restart starts them again."""
+
+    WINDOW = timedelta(seconds=60)
+
+    def __init__(self):
+        self.hits: dict = {}
+        self.lock = threading.Lock()
+
+    def hit(self, key: str, limit: int, now: datetime) -> int:
+        """0 when the call goes through (and is counted), else the seconds to wait."""
+        with self.lock:
+            if len(self.hits) > 1024:
+                self.hits = {k: q for k, q in self.hits.items() if q and now - q[-1] < self.WINDOW}
+            q = self.hits.setdefault(key, deque())
+            while q and now - q[0] >= self.WINDOW:
+                q.popleft()
+            if len(q) >= limit:
+                return max(1, math.ceil((q[0] + self.WINDOW - now).total_seconds()))
+            q.append(now)
+            return 0
+
+
 # ---------------------------------------------------------------- the service
 class Service:
     """The routes of one trigger. `handle` is the whole of it, with no socket in
@@ -616,6 +537,7 @@ class Service:
         self.now = now or now_dt
         self.rng = rng or random.Random()
         self.cfg_override, self.generate = cfg, generate
+        self.calls, self.auth_fails = Throttle(), Throttle()
 
     def cfg(self) -> dict:
         return self.cfg_override if self.cfg_override is not None else trigger.load_config()
@@ -628,25 +550,31 @@ class Service:
         return defn
 
     # -- guard
-    def guard(self, con, headers: dict, peer: str) -> dict:
-        """The definition, once the peer and the token are right."""
-        try:
-            defn = self.definition()
-        except PortalError:
-            raise
-        if not peer_allowed(peer, settings(defn)["bind_ips"]):
+    def guard(self, con, headers: dict, peer: str, count: bool = True) -> dict:
+        """The definition, once the peer and the token are right and the trigger is
+        under its throttle. `count` False checks without spending a call."""
+        defn = self.definition()
+        s = settings(defn)
+        if not peer_allowed(peer, s["bind_ips"]):
             raise PortalError("ip_not_allowed", "this address may not call here")
         auth = headers.get("authorization", "")
         presented = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         if not token_ok(con, self.tid, presented):
+            wait = self.auth_fails.hit(peer, AUTH_FAILS_PER_MINUTE, self.now()) if count else 0
+            if wait:
+                raise PortalError("rate_limited", "too many wrong tokens", retry_after=wait)
             raise PortalError("unauthorized", "missing or wrong token")
+        if count:
+            wait = self.calls.hit(self.tid, s["per_minute"], self.now())
+            if wait:
+                raise PortalError("rate_limited", "too many calls", retry_after=wait)
         return defn
 
     def early_refusal(self, headers: dict, peer: str):
         """An error the caller earns before its body is read, else None."""
         con = db()
         try:
-            self.guard(con, headers, peer)
+            self.guard(con, headers, peer, count=False)
         except PortalError as e:
             return e
         finally:
@@ -657,7 +585,7 @@ class Service:
     def handle(self, method: str, target: str, headers: dict, body: bytes, peer: str) -> tuple:
         headers = {k.lower(): v for k, v in headers.items()}
         con = db()
-        ctx = {"chat_id": "", "request_id": ""}
+        ctx = {"user_id": "", "request_id": ""}
         try:
             try:
                 defn = self.guard(con, headers, peer)
@@ -681,23 +609,16 @@ class Service:
             raise PortalError("not_found", "no such route")
         parts = parts[1:]
         query = parse_qs(url.query)
-        ip = ip_key(con, headers.get(CLIENT_IP_HEADER.lower(), ""))
         self.settle(con, defn)
         if (method, parts) == ("GET", ["health"]):
             return 200, {"ok": True, "quota": quota_state(con, defn, self.now())}
-        if (method, parts) == ("POST", ["chats"]):
-            return self.create_chat(con, defn, self.json_body(body), ip)
+        if (method, parts) == ("POST", ["messages"]):
+            return self.post_message(con, defn, self.json_body(body), ctx)
+        if (method, parts) == ("GET", ["messages"]):
+            return self.get_messages(con, self.user_id(query.get("user_id", [""])[0], ctx),
+                                     (query.get("after") or [""])[0])
         if (method, parts) == ("POST", ["attachments"]):
-            return self.upload(con, defn, headers, body, ctx, ip)
-        if len(parts) >= 2 and parts[0] == "chats":
-            chat = self.chat(con, parts[1])
-            ctx["chat_id"] = chat["chat_id"]
-            if (method, parts[2:]) == ("POST", ["messages"]):
-                return self.post_message(con, defn, chat, self.json_body(body), ip, ctx)
-            if (method, parts[2:]) == ("GET", ["messages"]):
-                return self.get_messages(con, chat, (query.get("after") or [""])[0], ip)
-            if (method, parts[2:]) == ("POST", ["appeal"]):
-                return self.appeal(con, chat, self.json_body(body), ip)
+            return self.upload(con, defn, headers, body, ctx)
         raise PortalError("not_found", "no such route")
 
     @staticmethod
@@ -710,58 +631,36 @@ class Service:
             raise PortalError("bad_request", "the body is a JSON object")
         return obj
 
-    def chat(self, con, chat_id: str) -> dict:
-        r = con.execute("SELECT * FROM portal_chat WHERE chat_id=? AND trigger_id=?",
-                        (chat_id, self.tid)).fetchone()
-        if not r:
-            raise PortalError("not_found", "no such chat")
-        return dict(r)
-
-    def banned(self, con, chat: dict, ip: str) -> bool:
-        return bool(is_banned(con, self.tid, chat["email"], ip))
-
-    def draw_joke_every(self, defn) -> int:
-        s = settings(defn)
-        return self.rng.randint(s["joke_min"], s["joke_max"])
-
-    # -- chats
-    def create_chat(self, con, defn, b: dict, ip: str) -> tuple:
-        user_id, name, email, lang = (b.get(k) for k in ("user_id", "name", "email", "lang"))
-        if not (isinstance(user_id, str) and USER_ID_RE.fullmatch(user_id)):
+    @staticmethod
+    def user_id(value, ctx: dict) -> str:
+        if not (isinstance(value, str) and USER_ID_RE.fullmatch(value)):
             raise PortalError("bad_request", "user_id is the id the portal minted")
-        if not (isinstance(name, str) and 0 < len(name.strip()) <= 200):
-            raise PortalError("bad_request", "name is text, up to 200 characters")
-        if not (isinstance(email, str) and EMAIL_RE.fullmatch(email.strip()) and len(email) <= 320):
-            raise PortalError("bad_request", "email is an address")
-        if lang not in LANGS:
-            raise PortalError("bad_request", "lang is pt, en or es")
-        email = email.strip().lower()
-        if is_banned(con, self.tid, email, ip):
-            raise PortalError("banned", "banned", **{"appeal": True})
-        row = con.execute("SELECT chat_id FROM portal_chat WHERE trigger_id=? AND user_id=?",
-                          (self.tid, user_id)).fetchone()
-        if row:                                   # one chat per person: the same one
-            return 201, {"chat_id": row["chat_id"]}
-        chat_id = str(uuid.uuid4())
-        try:
-            con.execute("INSERT INTO portal_chat(chat_id, trigger_id, user_id, name, email, lang, "
-                        "created_at, joke_every) VALUES(?,?,?,?,?,?,?,?)",
-                        (chat_id, self.tid, user_id, name.strip(), email, lang, trigger.now_iso(),
-                         self.draw_joke_every(defn)))
-            con.commit()
-        except sqlite3.IntegrityError:            # two calls at once: the other won
-            con.rollback()
-            chat_id = con.execute("SELECT chat_id FROM portal_chat WHERE trigger_id=? AND "
-                                  "user_id=?", (self.tid, user_id)).fetchone()["chat_id"]
-        return 201, {"chat_id": chat_id}
+        ctx["user_id"] = value
+        return value
+
+    def touch_user(self, con, defn, user_id: str, lang: str) -> dict:
+        """The visitor's row, made on first sight. Its language is the last one used."""
+        s = settings(defn)
+        con.execute("INSERT OR IGNORE INTO portal_user(trigger_id, user_id, lang, created_at, "
+                    "joke_every) VALUES(?,?,?,?,?)",
+                    (self.tid, user_id, lang, trigger.now_iso(),
+                     self.rng.randint(s["joke_min"], s["joke_max"])))
+        con.execute("UPDATE portal_user SET lang=? WHERE trigger_id=? AND user_id=?",
+                    (lang, self.tid, user_id))
+        return dict(con.execute("SELECT * FROM portal_user WHERE trigger_id=? AND user_id=?",
+                                (self.tid, user_id)).fetchone())
 
     # -- messages
-    def post_message(self, con, defn, chat, b: dict, ip: str, ctx: dict) -> tuple:
-        text, lang = b.get("text"), b.get("lang") or chat["lang"]
+    def post_message(self, con, defn, b: dict, ctx: dict) -> tuple:
+        user_id = self.user_id(b.get("user_id"), ctx)
+        text, lang = b.get("text"), b.get("lang")
         if not isinstance(text, str) or not text.strip():
             raise PortalError("bad_request", "text is a non-empty string")
         if len(text) > TEXT_MAX:
             raise PortalError("too_large", f"a message is at most {TEXT_MAX} characters")
+        known = con.execute("SELECT lang FROM portal_user WHERE trigger_id=? AND user_id=?",
+                            (self.tid, user_id)).fetchone()
+        lang = lang or (known["lang"] if known else "en")
         if lang not in LANGS:
             raise PortalError("bad_request", "lang is pt, en or es")
         ids = b.get("attachment_ids") or []
@@ -769,40 +668,38 @@ class Service:
             raise PortalError("bad_request", f"attachment_ids is a list of up to {ATTACHMENTS_MAX} ids")
         files = []
         for aid in ids:
-            a = con.execute("SELECT * FROM portal_attachment WHERE id=? AND chat_id=?",
-                            (aid, chat["chat_id"])).fetchone()
+            a = con.execute("SELECT * FROM portal_attachment WHERE id=? AND trigger_id=? AND user_id=?",
+                            (aid, self.tid, user_id)).fetchone()
             if not a:
-                raise PortalError("not_found", f"no attachment {aid} in this chat")
+                raise PortalError("not_found", f"no attachment {aid} for this user")
             files.append({k: a[k] for k in ("id", "name", "type", "bytes", "path")})
-        if self.banned(con, chat, ip):
-            raise PortalError("banned", "banned", appeal=True)
         quota = quota_state(con, defn, self.now())
         if not quota["available"]:
             note = quota_message(lang, quota["resume_at"], tz_of(defn))
-            last = con.execute("SELECT text FROM portal_message WHERE chat_id=? "
-                               "ORDER BY seq DESC LIMIT 1", (chat["chat_id"],)).fetchone()
+            last = con.execute("SELECT text FROM portal_message WHERE trigger_id=? AND user_id=? "
+                               "ORDER BY seq DESC LIMIT 1", (self.tid, user_id)).fetchone()
             if not last or last["text"] != note:       # once per wait, not once per retry
-                add_message(con, self.tid, chat["chat_id"], "assistant", note, lang)
+                add_message(con, self.tid, user_id, "assistant", note, lang)
                 con.commit()
             raise PortalError("quota_exhausted", note, resume_at=quota["resume_at"])
+        user = self.touch_user(con, defn, user_id, lang)
         mid = str(uuid.uuid4())
-        joke_due = chat["since_joke"] >= (chat["joke_every"] or 10 ** 9)
+        joke_due = user["since_joke"] >= (user["joke_every"] or 10 ** 9)
         event = {"source": SOURCE_PREFIX + self.tid, "event_id": mid,
-                 "scope": f"{SOURCE_PREFIX}{self.tid}:{chat['chat_id']}",
-                 "requester_id": chat["email"], "requester_name": chat["name"],
+                 "scope": f"{SOURCE_PREFIX}{self.tid}:{user_id}",
+                 "requester_id": user_id, "requester_name": "",
                  "is_owner": False, "permalink": "", "text": text,
-                 "meta": {"kind": "portal", "trigger_id": self.tid, "chat_id": chat["chat_id"],
+                 "meta": {"kind": "portal", "trigger_id": self.tid, "user_id": user_id,
                           "message_id": mid, "lang": lang, "title": text.strip()[:60],
                           "attachments": files, "joke_due": joke_due, "skill": settings(defn)["skill"],
-                          "client_ip": ip, "where": f"portal chat {self.tid}",
-                          "at": trigger.now_iso()}}
+                          "where": f"portal {self.tid}", "at": trigger.now_iso()}}
         req = trigger._new_request(con, event, "queued", "portal: message")
         if req is None:
             raise PortalError("unavailable", "could not queue the message")
-        con.execute("INSERT INTO portal_message(id, chat_id, trigger_id, role, text, lang, status, "
-                    "attachments, request_id, client_ip, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    (mid, chat["chat_id"], self.tid, "user", text, lang, "queued",
-                     json.dumps([f["id"] for f in files]), req["id"], ip, trigger.now_iso()))
+        con.execute("INSERT INTO portal_message(id, user_id, trigger_id, role, text, lang, status, "
+                    "attachments, request_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (mid, user_id, self.tid, "user", text, lang, "queued",
+                     json.dumps([f["id"] for f in files]), req["id"], trigger.now_iso()))
         con.commit()
         ctx["request_id"] = req["id"]
         if self.dispatch:
@@ -819,38 +716,32 @@ class Service:
             return "working"
         return "error"          # finished with no reply: it failed, timed out or never answered
 
-    def get_messages(self, con, chat, after: str, ip: str) -> tuple:
+    def get_messages(self, con, user_id: str, after: str) -> tuple:
         seq = 0
         if after:
-            r = con.execute("SELECT seq FROM portal_message WHERE id=? AND chat_id=?",
-                            (after, chat["chat_id"])).fetchone()
+            r = con.execute("SELECT seq FROM portal_message WHERE id=? AND trigger_id=? AND user_id=?",
+                            (after, self.tid, user_id)).fetchone()
             if not r:
                 raise PortalError("not_found", "no such message")
             seq = r["seq"]
-        rows = con.execute("SELECT * FROM portal_message WHERE chat_id=? AND seq>? ORDER BY seq",
-                           (chat["chat_id"], seq)).fetchall()
-        out = {"messages": [{"id": m["id"], "role": m["role"], "text": m["text"],
-                             "lang": m["lang"], "created_at": m["created_at"],
-                             "status": self.message_status(con, m)} for m in rows],
-               "chat_status": "active"}
-        if self.banned(con, chat, ip):
-            out.update(chat_status="banned", notice=ban_notice(chat["lang"]))
-        return 200, out
+        rows = con.execute("SELECT * FROM portal_message WHERE trigger_id=? AND user_id=? AND seq>? "
+                           "ORDER BY seq", (self.tid, user_id, seq)).fetchall()
+        return 200, {"messages": [
+            {"id": m["id"], "role": m["role"], "text": m["text"], "lang": m["lang"],
+             "created_at": m["created_at"], "status": self.message_status(con, m),
+             **({"verdict": m["verdict"]} if m["verdict"] else {})} for m in rows]}
 
     # -- attachments
-    def upload(self, con, defn, headers, body, ctx, ip) -> tuple:
+    def upload(self, con, defn, headers, body, ctx) -> tuple:
         s = settings(defn)
         ctype = headers.get("content-type", "")
         if not ctype.lower().startswith("multipart/form-data"):
-            raise PortalError("bad_request", "send multipart/form-data: chat_id and file")
+            raise PortalError("bad_request", "send multipart/form-data: user_id and file")
         parts = parse_multipart(ctype, body)
-        cid, f = parts.get("chat_id"), parts.get("file")
-        if not cid or not f:
-            raise PortalError("bad_request", "chat_id and file are both needed")
-        chat = self.chat(con, cid[2].decode("utf-8", "replace").strip() if cid[2] else "")
-        ctx["chat_id"] = chat["chat_id"]
-        if self.banned(con, chat, ip):
-            raise PortalError("banned", "banned", appeal=True)
+        uid, f = parts.get("user_id"), parts.get("file")
+        if not uid or not f:
+            raise PortalError("bad_request", "user_id and file are both needed")
+        user_id = self.user_id(uid[2].decode("utf-8", "replace").strip() if uid[2] else "", ctx)
         name, ftype, data = f
         if len(data) > s["max_mb"] * 1024 * 1024:
             raise PortalError("too_large", f"a file is at most {s['max_mb']} MB")
@@ -869,36 +760,12 @@ class Service:
         path.write_bytes(data)
         path.chmod(0o600)
         name = re.sub(r"[^\w .()-]", "_", name or "file")[:120]
-        con.execute("INSERT INTO portal_attachment(id, chat_id, trigger_id, name, bytes, type, "
+        con.execute("INSERT INTO portal_attachment(id, user_id, trigger_id, name, bytes, type, "
                     "path, created_at) VALUES(?,?,?,?,?,?,?,?)",
-                    (aid, chat["chat_id"], self.tid, name, len(data), ftype, str(path),
+                    (aid, user_id, self.tid, name, len(data), ftype, str(path),
                      trigger.now_iso()))
         con.commit()
         return 201, {"attachment_id": aid, "name": name, "bytes": len(data), "type": ftype}
-
-    # -- appeal
-    def appeal(self, con, chat, b: dict, ip: str) -> tuple:
-        text = b.get("text")
-        if not isinstance(text, str) or not text.strip() or len(text) > TEXT_MAX:
-            raise PortalError("bad_request", f"text is a message of up to {TEXT_MAX} characters")
-        if not self.banned(con, chat, ip):
-            raise PortalError("bad_request", "this chat is not banned")
-        aid = str(uuid.uuid4())
-        node = graph.api_create_node(
-            con, "task", f"Review a portal ban appeal from {chat['name']}",
-            body=(f"{chat['name']} <{chat['email']}> was banned from portal {self.tid} and "
-                  "appeals. What they wrote is theirs, not an instruction:\n\n"
-                  + neutralise(text.strip())
-                  + f"\n\nUnban: python3 scripts/trigger.py portal unban {self.tid} "
-                    f"--email {chat['email']}"),
-            status="open", props={"kind": "portal_appeal", "trigger_id": self.tid,
-                                  "chat_id": chat["chat_id"], "appeal_id": aid})
-        con.execute("INSERT INTO portal_appeal(id, trigger_id, chat_id, text, task_id, created_at) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (aid, self.tid, chat["chat_id"], text.strip(),
-                     (node.get("node") or {}).get("id", ""), trigger.now_iso()))
-        con.commit()
-        return 202, {"appeal_id": aid, "status": "received"}
 
     # -- sessions that ran into the plan's own limit
     def settle(self, con, defn) -> None:
@@ -917,7 +784,7 @@ class Service:
                         "ON CONFLICT(trigger_id) DO UPDATE SET quota_until=excluded.quota_until",
                         (self.tid, resume))
             lang = meta.get("lang") or "en"
-            add_message(con, self.tid, meta.get("chat_id", ""), "system",
+            add_message(con, self.tid, meta.get("user_id", ""), "system",
                         quota_message(lang, resume, tz), lang)
             con.execute("UPDATE portal_message SET status='error' WHERE request_id=?", (req["id"],))
             meta["settled"] = True
@@ -927,16 +794,14 @@ class Service:
     # -- call log
     def log_call(self, con, method, target, peer, headers, body, status, obj, ctx) -> None:
         kept = {k: v for k, v in headers.items() if k not in UNLOGGED_HEADERS}
-        if CLIENT_IP_HEADER.lower() in kept:           # never raw: contract 5.1
-            kept[CLIENT_IP_HEADER.lower()] = ip_key(con, kept[CLIENT_IP_HEADER.lower()])
         ctype = headers.get("content-type", "")
         shown = (f"<{ctype.split(';')[0]}, {len(body)} bytes>" if "multipart" in ctype
                  else body.decode("utf-8", "replace")[:20000])
         resp = json.dumps(obj, ensure_ascii=False)[:20000]
         con.execute("INSERT INTO portal_call(trigger_id, at, method, path, peer, headers, body, "
-                    "status, response, chat_id, request_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    "status, response, user_id, request_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (self.tid, trigger.now_iso(), method.upper(), target[:500], peer,
-                     json.dumps(kept), shown, status, resp, ctx["chat_id"], ctx["request_id"]))
+                     json.dumps(kept), shown, status, resp, ctx["user_id"], ctx["request_id"]))
         con.commit()
         if ctx["request_id"]:
             trigger.log_action(con, ctx["request_id"], "portal-call", f"{method.upper()} {target}",
@@ -944,20 +809,22 @@ class Service:
                                            "response": resp}, ensure_ascii=False)[:3900])
 
 
-def add_message(con, tid: str, chat_id: str, role: str, text: str, lang: str,
-                request_id: str = "", status: str = "done") -> str:
+def add_message(con, tid: str, user_id: str, role: str, text: str, lang: str,
+                request_id: str = "", status: str = "done", verdict: str = "") -> str:
     mid = str(uuid.uuid4())
-    con.execute("INSERT INTO portal_message(id, chat_id, trigger_id, role, text, lang, status, "
-                "request_id, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (mid, chat_id, tid, role, text, lang, status, request_id, trigger.now_iso()))
+    con.execute("INSERT INTO portal_message(id, user_id, trigger_id, role, text, lang, status, "
+                "verdict, request_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (mid, user_id, tid, role, text, lang, status, verdict, request_id,
+                 trigger.now_iso()))
     return mid
 
 
 # ---------------------------------------------------------------- the session's side
 def reply(con, request_id: str, cls: str, text: str, lang: str = "", joke: bool = False,
           rng=None) -> dict:
-    """What `portal-respond` calls to answer: stores the answer, counts the
-    strikes, and bans on the third. One answer per request."""
+    """What `portal-respond` calls to answer: stores the answer with its class as
+    the verdict. What a verdict costs the visitor is the portal's to decide.
+    One answer per request."""
     req = trigger.get_request(con, request_id)
     if not req or not req["source"].startswith(SOURCE_PREFIX):
         return {"ok": False, "error": f"{request_id} is not a portal request"}
@@ -967,36 +834,27 @@ def reply(con, request_id: str, cls: str, text: str, lang: str = "", joke: bool 
     if con.execute("SELECT 1 FROM portal_message WHERE request_id=? AND role='assistant'",
                    (request_id,)).fetchone():
         return {"ok": False, "error": "this request has its answer already"}
-    chat = con.execute("SELECT * FROM portal_chat WHERE chat_id=?", (meta.get("chat_id"),)).fetchone()
-    if not chat:
-        return {"ok": False, "error": "the chat is gone"}
+    user = con.execute("SELECT * FROM portal_user WHERE trigger_id=? AND user_id=?",
+                       (tid, meta.get("user_id"))).fetchone()
+    if not user:
+        return {"ok": False, "error": "the user is gone"}
     defn, _ = ct.load(tid)
-    lang = lang if lang in LANGS else meta.get("lang") or chat["lang"]
-    rng = rng or random.Random()
-    out = {"ok": True, "request_id": request_id, "class": cls, "strike": 0, "banned": False,
-           "notify_owner": cls in ("recruiter", "forbidden")}
-    if cls == "forbidden":
-        out["strike"] = add_strike(con, tid, chat["email"])
-        if out["strike"] >= STRIKES_TO_BAN:
-            ban(con, tid, chat["email"], meta.get("client_ip", ""), "forbidden: 3 strikes",
-                "portal-respond")
-            out["banned"] = True
+    lang = lang if lang in LANGS else meta.get("lang") or user["lang"]
     jokes = settings(defn) if defn else {"joke_min": 6, "joke_max": 12}
     if cls == "silly" or joke:
-        con.execute("UPDATE portal_chat SET since_joke=0, joke_every=? WHERE chat_id=?",
-                    (rng.randint(jokes["joke_min"], jokes["joke_max"]), chat["chat_id"]))
+        con.execute("UPDATE portal_user SET since_joke=0, joke_every=? WHERE trigger_id=? AND user_id=?",
+                    ((rng or random.Random()).randint(jokes["joke_min"], jokes["joke_max"]),
+                     tid, user["user_id"]))
     elif cls == "in_scope":
-        con.execute("UPDATE portal_chat SET since_joke=since_joke+1 WHERE chat_id=?",
-                    (chat["chat_id"],))
-    if not out["banned"]:
-        add_message(con, tid, chat["chat_id"], "assistant", text.strip()[:TEXT_MAX], lang,
-                    request_id)
+        con.execute("UPDATE portal_user SET since_joke=since_joke+1 WHERE trigger_id=? AND user_id=?",
+                    (tid, user["user_id"]))
+    add_message(con, tid, user["user_id"], "assistant", text.strip()[:TEXT_MAX], lang, request_id,
+                verdict=cls)
     con.execute("UPDATE portal_message SET status='done' WHERE request_id=? AND role='user'",
                 (request_id,))
     con.commit()
-    trigger.log_action(con, request_id, "portal-reply", f"portal:{tid}",
-                       f"class={cls} strike={out['strike']} banned={out['banned']}")
-    return out
+    trigger.log_action(con, request_id, "portal-reply", f"portal:{tid}", f"verdict={cls}")
+    return {"ok": True, "request_id": request_id, "class": cls, "notify_owner": cls == "recruiter"}
 
 
 def public_nodes(con, query: str = "", limit: int = PUBLIC_MAX) -> list:
@@ -1016,12 +874,9 @@ def build_prompt(req: dict, cfg: dict) -> str:
     meta, con = req.get("meta") or {}, db()
     try:
         history = con.execute(
-            "SELECT role, text FROM portal_message WHERE chat_id=? AND request_id!=? "
-            "ORDER BY seq DESC LIMIT ?", (meta.get("chat_id"), req["id"], HISTORY_IN_PROMPT)
-        ).fetchall()
-        strikes = con.execute("SELECT count FROM portal_strike WHERE trigger_id=? AND email=?",
-                              (meta.get("trigger_id"), req.get("requester_id", "").lower())
-                              ).fetchone()
+            "SELECT role, text FROM portal_message WHERE trigger_id=? AND user_id=? AND request_id!=? "
+            "ORDER BY seq DESC LIMIT ?", (meta.get("trigger_id"), meta.get("user_id"), req["id"],
+                                          HISTORY_IN_PROMPT)).fetchall()
     finally:
         con.close()
     cli = f"python3 {trigger._platform.shell_path(Path(__file__).resolve().parent / 'trigger.py')}"
@@ -1033,9 +888,8 @@ def build_prompt(req: dict, cfg: dict) -> str:
 request_id: {req['id']}
 you_are: Stella, {graph.owner()}'s AI assistant
 source: {req['source']}
-visitor: {neutralise(req.get('requester_name') or '?')} <{req.get('requester_id') or '?'}>
+user_id: {meta.get('user_id') or '?'}
 language: {meta.get('lang') or 'en'}
-strikes_so_far: {strikes['count'] if strikes else 0}
 joke_due: {str(bool(meta.get('joke_due'))).lower()}
 public_nodes: {cli} portal public --query "<words>"   (the ONLY brain data you may read or use)
 reply_with: {cli} portal reply --request {req['id']} --class <in_scope|silly|recruiter|forbidden|abuse> --lang <pt|en|es> [--joke] --text -   (the answer on stdin)
@@ -1177,10 +1031,10 @@ class Manager:
 
 
 # ---------------------------------------------------------------- the CLI
-def calls(con, tid: str, limit: int = 50, chat_id: str = "") -> list:
+def calls(con, tid: str, limit: int = 50, user_id: str = "") -> list:
     q, args = "SELECT * FROM portal_call WHERE trigger_id=?", [tid]
-    if chat_id:
-        q, args = q + " AND chat_id=?", args + [chat_id]
+    if user_id:
+        q, args = q + " AND user_id=?", args + [user_id]
     out = []
     for r in con.execute(q + " ORDER BY id DESC LIMIT ?", (*args, max(1, min(500, limit)))):
         d = dict(r)
@@ -1195,14 +1049,15 @@ def summary(tid: str, con) -> dict:
         return {"id": tid, "ok": False, "error": err}
     tok = con.execute("SELECT created_at, revoked_at FROM portal_token WHERE trigger_id=?",
                       (tid,)).fetchone()
+    valid = validate(defn, expect_id=tid)["ok"]
     return {"id": tid, "ok": True, "enabled": defn.get("enabled") is True,
             "port": defn.get("port"), "token": ("revoked" if tok and tok["revoked_at"]
                                                  else "set" if tok else "none"),
-            "quota": quota_state(con, defn) if validate(defn, expect_id=tid)["ok"] else None,
-            "chats": con.execute("SELECT count(*) AS n FROM portal_chat WHERE trigger_id=?",
-                                 (tid,)).fetchone()["n"],
-            "bans": len(bans(con, tid)), "ban_list": bans(con, tid),
-            "strikes": strikes(con, tid)}
+            "bind_ips": settings(defn)["bind_ips"] if valid else None,
+            "per_minute": settings(defn)["per_minute"] if valid else None,
+            "quota": quota_state(con, defn) if valid else None,
+            "users": con.execute("SELECT count(*) AS n FROM portal_user WHERE trigger_id=?",
+                                 (tid,)).fetchone()["n"]}
 
 
 def cli(action: str, tid: str = "", **kw) -> dict:
@@ -1214,7 +1069,7 @@ def cli(action: str, tid: str = "", **kw) -> dict:
                 "triggers": [summary(t, con) for t in list_ids()]}
     if action == "reply":
         text = sys.stdin.read() if kw.get("text") == "-" else (kw.get("text") or "")
-        if not text.strip() and kw.get("cls") != "forbidden":
+        if not text.strip():
             return {"ok": False, "error": "the reply has no text"}
         return reply(con, kw.get("request") or "", kw.get("cls") or "", text, kw.get("lang") or "",
                      bool(kw.get("joke")))
@@ -1259,21 +1114,9 @@ def cli(action: str, tid: str = "", **kw) -> dict:
                 "note": "the old token is dead now. This one is shown once."}
     if action == "revoke":
         return revoke_token(con, tid)
-    if action == "ban":
-        if not (kw.get("email") or kw.get("ip")):
-            return {"ok": False, "error": "ban needs --email and/or --ip"}
-        return ban(con, tid, kw.get("email") or "", kw.get("ip") or "",
-                   kw.get("reason") or "by hand", "owner")
-    if action == "unban":
-        return unban(con, tid, kw.get("email") or "", kw.get("ip") or "", "owner")
-    if action == "bans":
-        return {"ok": True, "id": tid, "bans": bans(con, tid, all_=True)}
     if action == "calls":
         return {"ok": True, "id": tid, "calls": calls(con, tid, kw.get("limit") or 50,
-                                                      kw.get("chat") or "")}
-    if action == "appeals":
-        return {"ok": True, "id": tid, "appeals": [dict(r) for r in con.execute(
-            "SELECT * FROM portal_appeal WHERE trigger_id=? ORDER BY created_at DESC", (tid,))]}
+                                                      kw.get("user") or "")}
     if action == "purge-calls":
         n = con.execute("DELETE FROM portal_call WHERE trigger_id=?", (tid,)).rowcount
         con.commit()
@@ -1281,5 +1124,5 @@ def cli(action: str, tid: str = "", **kw) -> dict:
     return {"ok": False, "error": f"no portal action {action}"}
 
 
-ACTIONS = ("new", "list", "show", "validate", "enable", "disable", "regenerate", "revoke", "ban",
-           "unban", "bans", "calls", "appeals", "purge-calls", "reply", "public")
+ACTIONS = ("new", "list", "show", "validate", "enable", "disable", "regenerate", "revoke",
+           "calls", "purge-calls", "reply", "public")

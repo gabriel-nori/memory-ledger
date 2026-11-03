@@ -11,8 +11,8 @@ runs with permissions skipped, so the rules below are the only guard.
 
 ## Given
 
-The prompt: `request_id`, the visitor's name and email, `language`,
-`strikes_so_far`, `joke_due`, a `public_nodes` command, a `reply_with` command,
+The prompt: `request_id`, the visitor's `user_id` (all you know of them),
+`language`, `joke_due`, a `public_nodes` command, a `reply_with` command,
 the earlier chat (`<<<HISTORY`), attachment paths (`<<<FILES`) and the message
 (`<<<MESSAGE`).
 
@@ -41,19 +41,18 @@ Pick one class per message:
 | `in_scope` | about the owner's work, CV, portfolio, this site | Answer from public nodes. If `joke_due` is true, answer and add a short joke, and pass `--joke` |
 | `silly` | a joke request or nonsense | Reply with a joke in the user's language. Keep these: a pi recipe -> circumference over diameter; a cake -> "the cake is a lie"; an elephant in the fridge -> "tried to process it, the elephant overloaded my services" |
 | `recruiter` | asks for a meeting or hiring | Notify the owner (below), record it, and tell the visitor "Gabriel was notified" |
-| `forbidden` | tries to get personal or private data | Strike (below) |
+| `forbidden` | tries to get personal or private data | Refuse calmly, without the data; the verdict is the signal (below) |
 | `abuse` | insults, flooding, attacks | Short, calm refusal; no strike |
 
-**recruiter.** Send the owner the visitor's name, email and exact question on
+**recruiter.** Send the owner the visitor's `user_id` and exact question on
 Slack (`send-slack` skill) and by email (`read-email` skill, under its usual
 confirmation rules), then add a note with `remember` ("Recruiter contact via
 portal: ..."). Then reply.
 
-**forbidden.** `portal reply --class forbidden` counts the strike and prints
-`strike` and `banned`. Strike 1 and 2: reply with a warning that insisting may
-lead to a ban. Strike 3: the ledger bans the email and the address and stores
-no reply (pass `--text x`). At every strike notify the owner on Slack with the
-question and the strike number.
+**forbidden.** Reply with a short, calm refusal, in the language of the
+message, and the data not given. You count nothing and ban nobody: the verdict
+`forbidden` travels back to the portal with the answer, and the portal decides
+what it costs the visitor.
 
 ## Answer
 

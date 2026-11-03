@@ -539,11 +539,15 @@ per-block log); `custom_trigger_state` keeps the last one per trigger.
 
 ## Portal triggers
 
-A chat for the visitors of the owner's site. The portal's backend is the only
-client: the visitor never reaches the brain. The contract with the portal is
+The HTTP door of the brain for the owner's site. The portal's backend is the
+only client: the visitor never reaches the brain. The brain takes a message, an
+attachment and the visitor's `user_id`, and gives back the answer with the
+skill's verdict. Everything about the visitor (bans, strikes, appeals, limits
+per chat, IP of the visitor) lives in the portal. The contract is
 [`docs/portal-contract.md`](portal-contract.md); this is the ledger's half.
 
-One file per trigger, `<home>/triggers/<id>.yaml`, saved switched off:
+One file per way in, `<home>/triggers/<id>.yaml`, saved switched off. A second
+way in (another token, port or set of IPs) is a second file:
 
 ```yaml
 id: portal-chat
@@ -551,6 +555,7 @@ type: portal
 enabled: false
 port: 8801                 # 8801-8899, one per trigger, unique
 bind_ips: ["*"]            # or IPs and CIDRs, checked against the TCP peer
+throttle: {per_minute: 300}   # calls a minute on this way in
 rate: {daily_budget_usd: 5, tz: America/Sao_Paulo}   # resets at local midnight
 attachments: {max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}
 jokes: {every_n_min: 6, every_n_max: 12}
@@ -568,18 +573,22 @@ python3 scripts/trigger.py portal new portal-chat         # file + token, shown 
 python3 scripts/trigger.py portal regenerate portal-chat  # the old token dies at once
 python3 scripts/trigger.py portal revoke portal-chat      # every call is 401 until regenerate
 python3 scripts/trigger.py portal enable|disable|validate|show|list [<id>]
-python3 scripts/trigger.py portal ban|unban|bans portal-chat --email x@y.z --ip 1.2.3.4
-python3 scripts/trigger.py portal calls|appeals|purge-calls portal-chat
+python3 scripts/trigger.py portal calls|purge-calls portal-chat [--user U]
 ```
 
 - **Token.** `ptl_...`, kept as sha256 only. No expiry; revoking is manual.
-- **API.** `POST /v1/chats`, `POST|GET /v1/chats/{id}/messages`,
-  `POST /v1/chats/{id}/appeal`, `POST /v1/attachments`, `GET /v1/health`; JSON,
-  `Authorization: Bearer`, errors `{"error": {"code", "message"}}`. Checks run in
-  order: peer in `bind_ips` (403 `ip_not_allowed`), token (401), then the route.
-  A text is at most 4000 characters; a message carries at most 5 attachments,
-  all of its own chat (404 otherwise). `GET messages?after=<id>` returns every
-  later message with its current status.
+- **API.** `POST|GET /v1/messages`, `POST /v1/attachments`, `GET /v1/health`;
+  JSON, `Authorization: Bearer`, errors `{"error": {"code", "message"}}`. The
+  visitor is the `user_id` the portal minted (8-128 of `[A-Za-z0-9_-]`), made on
+  its first message. Checks run in order: peer in `bind_ips` (403
+  `ip_not_allowed`), token (401), throttle (429 `rate_limited` with
+  `error.retry_after` seconds), then the route. A text is at most 4000
+  characters; a message carries at most 5 attachments, all of its own user (404
+  otherwise). `GET messages?user_id=&after=<id>` returns every later message
+  with its current status; an answer carries `verdict`: `in_scope`, `silly`,
+  `recruiter`, `forbidden` or `abuse`.
+- **Throttle.** `throttle.per_minute` calls a minute on the trigger, counted in
+  memory. A peer that sends wrong tokens is held to 20 a minute.
 - **Messages are tasks.** Each one is a request on `portal:<id>`, shown in the
   Tasks tab; the session (skill `portal-respond`) answers with
   `trigger.py portal reply`. The prompt fences the visitor's text, history and
@@ -592,10 +601,8 @@ python3 scripts/trigger.py portal calls|appeals|purge-calls portal-chat
   the "back at HH:MM" line as an assistant message. For a session limit,
   `resume_at` is read from the session's output by ollama and falls back to the
   next local midnight.
-- **Ban.** Three `forbidden` strikes on one email ban the email and the visitor's
-  address (`X-Client-IP`, kept salted and hashed); a match on either blocks.
-  Permanent until `unban`. A banned chat shows `chat_status: banned` and a notice;
-  `POST .../appeal` makes a task for the owner.
+- **Verdict, not ban.** The skill classifies each message and says so; it keeps
+  no count and bans nobody. The portal reads `verdict: forbidden` and decides.
 - **Call log.** Every call and its response (headers minus `Authorization`) is in
   `portal_call` (`portal calls`), and on the message's task as a `portal-call`
   action. No tokens, headers or addresses reach `trigger.log`.
