@@ -15,5 +15,5 @@ foreach ($c in $candidates) {
         exit $LASTEXITCODE
     }
 }
-Write-Error "memory-ledger setup: no Python 3.11+ found. Install it from python.org or with 'winget install Python.Python.3.12', then run this again."
+Write-Error "memory-ledger setup: no Python 3.11+ found. Install it from python.org or with 'winget install Python.Python.3.13', then run this again."
 exit 1

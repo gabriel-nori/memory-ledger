@@ -87,12 +87,73 @@ def _python() -> str:
     return str(exe)
 
 
+# ------------------------------------------------------------ voice offer
+def _sudo() -> list[str]:
+    return [] if not hasattr(os, "geteuid") or os.geteuid() == 0 else ["sudo"]
+
+
+def system_packages(platform: str | None = None, have=shutil.which) -> tuple[list[str], str]:
+    """The command that installs what the OS lacks for speech, and the note when
+    there is none: ([argv], "") to run it, ([], note) to tell the owner.
+    macOS needs ffmpeg for `say`; Linux needs espeak-ng; Windows speaks with SAPI."""
+    platform = platform or sys.platform
+    if platform == "darwin":
+        if have("ffmpeg"):
+            return [], ""
+        if have("brew"):
+            return ["brew", "install", "ffmpeg"], ""
+        return [], "ffmpeg is missing and Homebrew is not installed (https://brew.sh), then: brew install ffmpeg"
+    if platform.startswith("linux"):
+        if have("espeak-ng"):
+            return [], ""
+        for mgr, args in (("apt-get", ["install", "-y", "espeak-ng"]), ("dnf", ["install", "-y", "espeak-ng"]),
+                          ("pacman", ["-S", "--noconfirm", "espeak-ng"]), ("zypper", ["install", "-y", "espeak-ng"])):
+            if have(mgr):
+                return [*_sudo(), mgr, *args], ""
+        return [], "espeak-ng is missing: install it with your package manager"
+    return [], ""
+
+
+def voice_ready() -> bool:
+    return _platform.venv_python(_platform.voice_venv()).exists() or bool(os.environ.get("BRAIN_VOICE_PYTHON"))
+
+
+def offer_voice(ask=input, run=subprocess.run, interactive: bool | None = None) -> str:
+    """On the first start, offer the voice setup once: the OS packages, then
+    `setup.py --voice`. The answer is remembered in `<home>/run/voice-offer`, so a
+    "no" is never asked twice (run `setup.py --voice` any time). Returns what happened."""
+    marker = run_dir() / "voice-offer"
+    if voice_ready() or marker.exists():
+        return "skipped"
+    if interactive is None:
+        interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if not interactive:
+        return "not interactive"
+    try:
+        yes = ask("Set up voice (listening and speaking)? Downloads about 1.5 GB (speech model). [y/N] ")
+    except EOFError:
+        return "not interactive"
+    marker.write_text("yes" if yes.strip().lower() in ("y", "yes", "s", "sim") else "no", encoding="utf-8")
+    if marker.read_text(encoding="utf-8") != "yes":
+        return "declined"
+    cmd, note = system_packages()
+    if note:
+        print(note)
+    if cmd:
+        print("installing: " + " ".join(cmd), flush=True)
+        if run(cmd, stdin=subprocess.DEVNULL).returncode != 0:
+            print("could not install it; install it by hand, voice setup continues", file=sys.stderr)
+    r = run([_python(), str(HERE / "setup.py"), "--voice", "--skip-ui"], cwd=str(ROOT))
+    return "installed" if r.returncode == 0 else "failed"
+
+
 def start(open_browser: bool = True) -> int:
     if not healthy():
         why = _net.available()
         if why:                                         # the first start downloads pip packages and Node
             print(why, file=sys.stderr)
             return 1
+        offer_voice()
     if healthy():
         print(f"{NAME} is already running at {URL}")
     else:

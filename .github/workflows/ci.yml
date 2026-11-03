@@ -34,7 +34,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       # Node builds and tests the frontend, and test_contracts.py parses the
       # bundle that build produced with `node --check` -- a guard that SKIPS
@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/cache/memory-ledger
-          key: server-venv-${{ runner.os }}-py3.12-${{ hashFiles('scripts/requirements-server.txt', 'services/b2b/requirements.txt') }}
+          key: server-venv-${{ runner.os }}-py3.13-${{ hashFiles('scripts/requirements-server.txt', 'services/b2b/requirements.txt') }}
 
       # The suites are pytest suites (tests/conftest.py holds the shared
       # fixtures); pytest is the only thing they install. They are otherwise

@@ -45,6 +45,7 @@ import _textio  # noqa: E402
 
 MIN_PY = (3, 11)
 VOICE_PACKAGES = ["faster-whisper", "numpy"]
+VOICE_PY_MIN, VOICE_PY_MAX = (3, 11), (3, 13)
 
 steps: list[dict] = []
 QUIET = False
@@ -144,12 +145,42 @@ def launcher() -> None:
     step("launcher", ok, detail)
 
 
+def _py_version(exe: str) -> tuple[int, int] | None:
+    try:
+        r = _textio.run_text([exe, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+                             stdin=subprocess.DEVNULL)
+        major, minor = (r.stdout or "").split()[:2]
+        return int(major), int(minor)
+    except (OSError, ValueError):
+        return None
+
+
+def voice_python() -> str:
+    """The interpreter for the voice venv. faster-whisper needs PyAV, which has
+    no wheel for the newest Pythons and then tries to compile (needs pkg-config),
+    so prefer 3.13, 3.12, 3.11; fall back to the one running this."""
+    cur = sys.version_info[:2]
+    if VOICE_PY_MIN <= cur <= VOICE_PY_MAX:
+        return sys.executable
+    for minor in range(VOICE_PY_MAX[1], VOICE_PY_MIN[1] - 1, -1):
+        exe = shutil.which(f"python3.{minor}")
+        if exe and _py_version(exe) == (3, minor):
+            return exe
+    return sys.executable
+
+
 def voice_venv(stt_model: str, piper: bool) -> None:
     d = _platform.voice_venv()
     py = _platform.venv_python(d)
+    base = voice_python()
+    if py.exists() and base != sys.executable:
+        have = _py_version(str(py))
+        if have and not (VOICE_PY_MIN <= have <= VOICE_PY_MAX):
+            say(f"recreating the voice venv: it runs Python {have[0]}.{have[1]}")
+            shutil.rmtree(d, ignore_errors=True)
     if not py.exists():
-        say(f"creating the voice venv in {d}")
-        ok, err = run([sys.executable, "-m", "venv", str(d)])
+        say(f"creating the voice venv in {d} with {base}")
+        ok, err = run([base, "-m", "venv", str(d)])
         if not ok:
             step("voice venv", False, err + " (on Debian/Ubuntu: apt install python3-venv)")
             return

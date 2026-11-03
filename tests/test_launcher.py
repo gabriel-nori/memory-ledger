@@ -44,3 +44,32 @@ def test_stop_leaves_a_reused_pid_alone(brain_home, capsys, monkeypatch):
     assert launcher.stop() == 0
     assert [a for a in sent if a[1] != 0] == [] and "not running" in capsys.readouterr().out
     assert not launcher.pid_file().exists()
+
+
+def test_system_packages_per_os():
+    have = lambda names: (lambda n: f"/bin/{n}" if n in names else None)
+    assert launcher.system_packages("darwin", have({"brew"}))[0] == ["brew", "install", "ffmpeg"]
+    assert launcher.system_packages("darwin", have({"brew", "ffmpeg"})) == ([], "")
+    cmd, note = launcher.system_packages("darwin", have(set()))
+    assert cmd == [] and "brew.sh" in note
+    cmd, _ = launcher.system_packages("linux", have({"dnf"}))
+    assert cmd[-3:] == ["dnf", "install", "-y", "espeak-ng"][-3:] and "espeak-ng" in cmd
+    assert launcher.system_packages("linux", have({"espeak-ng"})) == ([], "")
+    assert launcher.system_packages("win32", have(set())) == ([], "")
+
+
+def test_offer_voice_asks_once_and_runs_setup(brain_home, monkeypatch):
+    monkeypatch.setattr(launcher, "voice_ready", lambda: False)
+    monkeypatch.setattr(launcher, "system_packages", lambda: (["pkg", "install"], ""))
+    calls = []
+    fake = lambda cmd, **kw: calls.append(cmd) or type("R", (), {"returncode": 0})()
+    assert launcher.offer_voice(ask=lambda _: "y", run=fake, interactive=True) == "installed"
+    assert calls[0] == ["pkg", "install"] and calls[1][1:] == [str(launcher.HERE / "setup.py"), "--voice", "--skip-ui"]
+    assert launcher.offer_voice(ask=lambda _: "y", run=fake, interactive=True) == "skipped"
+
+
+def test_offer_voice_remembers_a_no_and_skips_when_not_a_tty(brain_home, monkeypatch):
+    monkeypatch.setattr(launcher, "voice_ready", lambda: False)
+    assert launcher.offer_voice(interactive=False) == "not interactive"
+    assert launcher.offer_voice(ask=lambda _: "n", interactive=True) == "declined"
+    assert launcher.offer_voice(ask=lambda _: "y", interactive=True) == "skipped"
