@@ -57,7 +57,7 @@ function PortalRow({ t, onChanged }: { t: PortalTrigger; onChanged: () => void }
         <Badge tone={t.token === "set" ? "accent" : undefined}>token {t.token}</Badge>
         {t.quota && !t.quota.available ? <Badge>quota out until {t.quota.resume_at}</Badge> : null}
       </div>
-      <div className="ml-run__actions">
+      <div className="ml-portal__actions">
         {sure ? (
           <>
             <span>{sure === "regenerate" ? "The old token dies now." : "The portal stops accepting its token."}</span>
