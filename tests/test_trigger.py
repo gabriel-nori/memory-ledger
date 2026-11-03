@@ -2826,3 +2826,20 @@ def test_saving_an_agent_that_does_not_exist_is_refused(cfg):
     assert trigger._clean_action({"agent": "Bad Id!"}, row, "x")
     assert not trigger._clean_action({"agent": "gemini"}, row, "x") and row["agent"] == "gemini"
     assert "no agent connector" in trigger._action_complete({"action": "claude", "agent": "nope"}, "x")
+
+
+# -- PyYAML missing: the CLI says so instead of listing nothing ---------------
+
+def test_need_yaml_reports_missing_pyyaml(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yaml", None)  # `import yaml` raises ImportError
+    miss = trigger.need_yaml()
+    assert miss["ok"] is False
+    assert "pip install pyyaml" in miss["error"]
+    assert sys.executable in miss["error"]
+    assert trigger.inbound_cli("list") == miss
+    assert trigger.custom_cli("list", "") == miss
+
+
+def test_need_yaml_passes_when_installed():
+    pytest.importorskip("yaml")
+    assert trigger.need_yaml() is None

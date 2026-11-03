@@ -4163,9 +4163,23 @@ def check(cfg: dict, offline: bool = False, only: str = "") -> dict:
 CUSTOM_ACTIONS = ("list", "show", "validate", "dry-run", "run", "enable", "disable", "runs")
 
 
+def need_yaml() -> dict | None:
+    """The trigger files are YAML. Without PyYAML they read as empty, so a
+    list shows nothing and `new` hands out a port that is already taken."""
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        return {"ok": False, "error": f"PyYAML is not installed for {sys.executable}, so the "
+                "trigger files cannot be read. pip install pyyaml, or run this with the "
+                "server's python (~/.cache/memory-ledger/server-*/bin/python)."}
+    return None
+
+
 def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
     """`trigger.py custom <action> [<id>]`. Imported here, not at the top: the
     module imports this one."""
+    if (miss := need_yaml()):
+        return miss
     import custom_trigger as ct
     if action == "list":
         con = ct.db()
@@ -4212,6 +4226,8 @@ def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
 
 def inbound_cli(action: str, tid: str = "", **kw) -> dict:
     """`trigger.py inbound-http <action> [<id>]`. Imported here for the same reason."""
+    if (miss := need_yaml()):
+        return miss
     import inbound_http_trigger as pt
     return pt.cli(action, tid, **kw)
 
