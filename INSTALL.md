@@ -70,6 +70,14 @@ runs `graph.py init` (the brain, with its built-in skills), and ends with
 after an upgrade. `--json` prints one report; `--skip-venv` and `--skip-ui`
 leave those steps out. Nothing here is required: the plugin works without it.
 
+`--voice` builds the voice venv with Python 3.13, 3.12 or 3.11 (the first found;
+faster-whisper needs PyAV, which has no wheel for newer Pythons), and recreates
+an existing voice venv that runs another version. The desktop launcher also
+offers the voice setup once, on the first start in a terminal: it installs
+`ffmpeg` (macOS, Homebrew) or `espeak-ng` (Linux, apt/dnf/pacman/zypper), then
+runs `setup.py --voice --skip-ui`. The answer is kept in `<home>/run/voice-offer`,
+so a "no" is never asked again; run `setup.py --voice` any time.
+
 ## 1. Install the plugin (global)
 
 The plugin ships its own marketplace manifest (`.claude-plugin/marketplace.json`),

@@ -24,6 +24,7 @@ describe("Settings", () => {
   it("writes preferences server-side, so the CLI and the hooks agree with the page", async () => {
     const { user } = renderApp(<SettingsSection />, { route: "/settings" });
     const tz = await screen.findByLabelText(/Timezone/);
+    await waitFor(() => expect(tz).toHaveValue("America/Sao_Paulo")); // the field fills from the fetch; typing before that is overwritten
     await user.clear(tz);
     await user.type(tz, "Europe/Lisbon");
     await user.click(screen.getByRole("button", { name: "Save" }));

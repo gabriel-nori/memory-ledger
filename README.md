@@ -749,7 +749,7 @@ use `--host 0.0.0.0` (behind a tunnel) to reach it from your phone. The dashboar
 
 ### Voice in the Agents chat
 
-Dictation, reading aloud and conversation mode are opt-in (Settings > Voice, `voice.json`). Reading uses macOS `say` by default; set `BRAIN_TTS_ENGINE=piper` and `BRAIN_PIPER_PYTHON` (a Python with `piper-tts`; voices in `~/.cache/brain-piper`) to use Piper. The agent replies in the language of your message, typed or dictated: `reply_language_instruction` in `scripts/voice.py` detects it from the text and adds "reply in that language" to the system prompt.
+Dictation, reading aloud and conversation mode are opt-in (Settings > Voice, `voice.json`). The first start from the launcher offers the setup once (`scripts/launcher.py`, `setup.py --voice`; the voice venv uses Python 3.11-3.13). Reading uses macOS `say` by default; set `BRAIN_TTS_ENGINE=piper` and `BRAIN_PIPER_PYTHON` (a Python with `piper-tts`; voices in `~/.cache/brain-piper`) to use Piper. The agent replies in the language of your message, typed or dictated: `reply_language_instruction` in `scripts/voice.py` detects it from the text and adds "reply in that language" to the system prompt.
 
 ## Install
 
