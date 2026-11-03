@@ -92,7 +92,7 @@ export function InboundHttpCard({ writable }: { writable: boolean }) {
     <Card>
       <h2 className="ml-settings__h">Inbound HTTP</h2>
       <p className="ml-settings__hint">
-        The brain&apos;s HTTP door for your portal. Each way in is one file in <code>{data.dir}</code> with its own port (
+        The brain&apos;s HTTP door so other services can connect. Each way in is one file in <code>{data.dir}</code> with its own port (
         {data.port_range[0]}-{data.port_range[1]}), allowed IPs and CIDRs, token and throttle.{" "}
         {data.active ? (
           <Badge tone="success">listening here</Badge>

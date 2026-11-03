@@ -5,16 +5,16 @@ An `inbound-http` trigger is one file, `<home>/triggers/<id>.yaml`, next to the 
 ones, and it is one way in: its own port, its own allowed IPs and CIDRs, its own
 bearer token (kept here as a sha256 hash) and its own throttle. Another way in
 is another file. Switched on, the server opens ONE HTTP listener for it, serving
-only its own routes (`/v1/...`). The only client is the portal's backend.
+only its own routes (`/v1/...`). Any service you allow can be a client.
 
-The ledger takes a message, an attachment and the visitor's `user_id`, and
+The ledger takes a message, an attachment and the sender's `user_id`, and
 gives back the answer with the skill's verdict (`forbidden`, ...). Bans,
-strikes, appeals and the chat limits belong to the portal, not to this file.
+strikes, appeals and the chat limits belong to the calling service, not to this file.
 Each message becomes a request on `inbound-http:<id>`, like any other trigger's, and
 a headless session (skill `inbound-http-respond`) answers it through
 `trigger.py inbound-http reply`.
 
-Contract: docs/portal-contract.md section 1. Stdlib only, like the engine.
+Contract: docs/inbound-http-contract.md section 1. Stdlib only, like the engine.
 
     python3 scripts/trigger.py inbound-http new|list|show|validate|enable|disable [<id>]
     python3 scripts/trigger.py inbound-http regenerate|revoke|delete <id>
@@ -62,7 +62,7 @@ CLASSES = ("in_scope", "silly", "recruiter", "forbidden", "abuse")
 TEXT_MAX = 4000                    # a message (contract 5.5)
 ATTACHMENTS_MAX = 5                # per message (contract 5.5)
 DEFAULT_BUDGET_USD = 5             # contract 5.11
-DEFAULT_PER_MINUTE = 300           # calls a minute on one trigger; the portal polls every 2 s per open chat
+DEFAULT_PER_MINUTE = 300           # calls a minute on one trigger; a client polls every 2 s per open chat
 AUTH_FAILS_PER_MINUTE = 20         # wrong tokens a minute from one peer
 JSON_BODY_MAX = 256 * 1024         # any body that is not an upload
 HISTORY_IN_PROMPT = 10
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS inbound_token (
 );
 CREATE TABLE IF NOT EXISTS inbound_user (
     trigger_id TEXT NOT NULL,
-    user_id    TEXT NOT NULL,              -- minted by the portal; all the ledger knows of a visitor
+    user_id    TEXT NOT NULL,              -- minted by the calling service; all the ledger knows of a visitor
     lang       TEXT NOT NULL,
     created_at TEXT NOT NULL,
     since_joke INTEGER NOT NULL DEFAULT 0, -- in-scope replies since the last joke
@@ -651,7 +651,7 @@ class Service:
     @staticmethod
     def user_id(value, ctx: dict) -> str:
         if not (isinstance(value, str) and USER_ID_RE.fullmatch(value)):
-            raise InboundError("bad_request", "user_id is the id the portal minted")
+            raise InboundError("bad_request", "user_id is the id the calling service minted")
         ctx["user_id"] = value
         return value
 
@@ -840,7 +840,7 @@ def add_message(con, tid: str, user_id: str, role: str, text: str, lang: str,
 def reply(con, request_id: str, cls: str, text: str, lang: str = "", joke: bool = False,
           rng=None) -> dict:
     """What `inbound-http-respond` calls to answer: stores the answer with its class as
-    the verdict. What a verdict costs the visitor is the portal's to decide.
+    the verdict. What a verdict costs the visitor is the calling service's to decide.
     One answer per request."""
     req = trigger.get_request(con, request_id)
     if not req or not req["source"].startswith(SOURCE_PREFIX):
@@ -900,7 +900,7 @@ def build_prompt(req: dict, cfg: dict) -> str:
     past = "\n".join(f"{m['role']}: {neutralise(m['text'])[:600]}" for m in reversed(history))
     files = "\n".join(f"- {a['name']} ({a['type']}, {a['bytes']} bytes): {a['path']}"
                       for a in meta.get("attachments") or []) or "(none)"
-    return f"""You were summoned by a visitor of the owner's portal. Handle it with the memory-ledger `{meta.get('skill') or 'inbound-http-respond'}` skill.
+    return f"""You were summoned by a caller of an inbound HTTP trigger. Handle it with the memory-ledger `{meta.get('skill') or 'inbound-http-respond'}` skill.
 
 request_id: {req['id']}
 you_are: Stella, {graph.owner()}'s AI assistant

@@ -539,12 +539,12 @@ per-block log); `custom_trigger_state` keeps the last one per trigger.
 
 ## Inbound HTTP triggers
 
-The HTTP door of the brain. For the owner's site, the portal's backend is the
-only client: the visitor never reaches the brain. The brain takes a message, an
+The HTTP door of the brain, so other services can connect. The calling service
+is the only client: its end users never reach the brain. The brain takes a message, an
 attachment and the visitor's `user_id`, and gives back the answer with the
-skill's verdict. Everything about the visitor (bans, strikes, appeals, limits
-per chat, IP of the visitor) lives in the portal. The contract is
-[`docs/portal-contract.md`](portal-contract.md); this is the ledger's half.
+skill's verdict. Everything about the end user (bans, strikes, appeals, limits
+per chat, IP) lives in the calling service. The contract is
+[`docs/inbound-http-contract.md`](inbound-http-contract.md); this is the ledger's half.
 
 One file per way in, `<home>/triggers/<id>.yaml`, saved switched off. A second
 way in (another token, port or set of IPs) is a second file:
@@ -586,7 +586,7 @@ python3 scripts/trigger.py inbound-http calls|purge-calls|delete site-chat [--us
 - **Token.** `inb_...`, kept as sha256 only. No expiry; revoking is manual.
 - **API.** `POST|GET /v1/messages`, `POST /v1/attachments`, `GET /v1/health`;
   JSON, `Authorization: Bearer`, errors `{"error": {"code", "message"}}`. The
-  visitor is the `user_id` the portal minted (8-128 of `[A-Za-z0-9_-]`), made on
+  visitor is the `user_id` the calling service minted (8-128 of `[A-Za-z0-9_-]`), made on
   its first message. Checks run in order: peer in `bind_ips` (403
   `ip_not_allowed`), token (401), throttle (429 `rate_limited` with
   `error.retry_after` seconds), then the route. A text is at most 4000
@@ -609,7 +609,7 @@ python3 scripts/trigger.py inbound-http calls|purge-calls|delete site-chat [--us
   `resume_at` is read from the session's output by ollama and falls back to the
   next local midnight.
 - **Verdict, not ban.** The skill classifies each message and says so; it keeps
-  no count and bans nobody. The portal reads `verdict: forbidden` and decides.
+  no count and bans nobody. The calling service reads `verdict: forbidden` and decides.
 - **Call log.** Every call and its response (headers minus `Authorization`) is in
   `inbound_call` (`inbound-http calls`), and on the message's task as a `inbound-call`
   action. No tokens, headers or addresses reach `trigger.log`.

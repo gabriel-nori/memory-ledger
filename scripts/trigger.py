@@ -201,7 +201,7 @@ DEFAULTS = {
         "max_events_per_run": 20,
     },
     # Inbound HTTP triggers (scripts/inbound_http_trigger.py): the brain's HTTP door for the
-    # owner's portal, one listener per trigger file. The trigger's own
+    # other services, one listener per trigger file. The trigger's own
     # settings are in <home>/triggers/<id>.yaml; this is what they share.
     "inbound_http": {
         "enabled": False,

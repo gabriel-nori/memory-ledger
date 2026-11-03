@@ -1,5 +1,5 @@
 """Inbound HTTP triggers (docs/trigger.md#inbound-http-triggers): the contract's shared test
-vectors (docs/portal-contract.md section 3) against the ledger side.
+vectors (docs/inbound-http-contract.md section 3) against the ledger side.
 
     python -m pytest tests/test_inbound_http_trigger.py
 
