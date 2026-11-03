@@ -243,3 +243,69 @@ if sys.argv[1:4] == ["plugin", "list", "--json"]:
     lines = seen.read_text(encoding="utf-8").splitlines()
     assert f"plugin marketplace add {providers.PLUGIN_ROOT}" in lines
     assert "plugin install memory-ledger@memory-ledger" in lines
+
+
+# ---------------------------------------------------------------- Hugging Face Space (image)
+import hf_space
+
+SIZES = ["1024x1024 (1:1)", "1344x768 (16:9)", "768x1344 (9:16)", "1184x864 (4:3)", "864x1184 (3:4)"]
+
+
+def test_the_wrapper_asks_for_the_smallest_size_that_fits():
+    assert hf_space.pick_size(SIZES, "auto") == "1184x864 (4:3)"          # fewest pixels of all
+    assert hf_space.pick_size(SIZES, "wide") == "1344x768 (16:9)"
+    assert hf_space.pick_size(SIZES, "9:16") == "768x1344 (9:16)"
+    assert hf_space.pick_size(SIZES, "square") == "1024x1024 (1:1)"
+    assert hf_space.pick_size([], "wide") == ""
+
+
+def test_steps_follow_the_quality_and_the_slider_bounds():
+    assert hf_space.pick_steps("draft") == 12 and hf_space.pick_steps("final") == 28
+    assert hf_space.pick_steps("draft", lo=20) == 20 and hf_space.pick_steps("final", hi=24) == 24
+    with pytest.raises(hf_space.SpaceError):
+        hf_space.pick_steps("ultra")
+
+
+def test_a_brief_can_carry_aspect_and_quality_lines():
+    assert hf_space.brief_options("aspect=wide\nquality=final\na red apple") == (
+        "a red apple", {"aspect": "wide", "quality": "final"})
+    assert hf_space.brief_options("a red apple\naspect=wide")[1] == {}    # only at the top
+
+
+def test_the_space_shares_the_huggingface_token_and_never_saves_its_own(module_brain_home):
+    providers.save_key("huggingface", "hf_abc123")
+    assert providers.load_key("hfspace") == "hf_abc123"
+    assert providers.redact("failed with hf_abc123", "hfspace") == "failed with ***"
+    providers.delete_key("huggingface")
+
+
+def test_generate_sends_the_minimum_and_saves_the_image(module_brain_home, tmp_path, monkeypatch):
+    providers.save_key("huggingface", "hf_abc123")
+    calls = {}
+    monkeypatch.setattr(hf_space, "space_info", lambda s: {"id": s, "host": "https://x.hf.space",
+                                                           "stage": "RUNNING", "ready": True})
+    params = [{"parameter_name": n, "parameter_default": d} for n, d in
+              (("prompt", None), ("size", "1024x1024 (1:1)"), ("steps", 28), ("seed", 0), ("randomize_seed", True))]
+    monkeypatch.setattr(hf_space, "_endpoint", lambda h, n, t: (params, {"size": {"choices": [[s, s] for s in SIZES]},
+                                                                          "steps": {"minimum": 4, "maximum": 50}}))
+    monkeypatch.setattr(hf_space, "_stream", lambda h, n, data, t, to: calls.setdefault("data", data) and
+                        [{"url": "https://x.hf.space/f/a.webp"}, 7])
+    monkeypatch.setattr(hf_space, "_download", lambda url, t, dest: dest.write_bytes(b"img"))
+    res = hf_space.generate("a red apple", aspect="wide", out_dir=tmp_path)
+    assert calls["data"] == ["a red apple", "1344x768 (16:9)", 12, 0, True]
+    assert Path(res["path"]).read_bytes() == b"img" and res["path"].endswith(".webp") and res["seed"] == 7
+    providers.delete_key("huggingface")
+
+
+def test_generate_needs_the_token_and_a_running_space(module_brain_home, monkeypatch):
+    with pytest.raises(hf_space.SpaceError, match="HF_TOKEN"):
+        hf_space.generate("a red apple")
+    providers.save_key("huggingface", "hf_abc123")
+    monkeypatch.setattr(hf_space, "space_info", lambda s: {"id": s, "stage": "SLEEPING", "ready": False})
+    with pytest.raises(hf_space.SpaceError, match="not running"):
+        hf_space.generate("a red apple")
+    providers.delete_key("huggingface")
+
+
+def test_a_quota_error_is_named_and_the_key_is_masked(monkeypatch):
+    assert "ZeroGPU quota" in hf_space._quota_hint('"You have exceeded your GPU quota"')

@@ -932,9 +932,10 @@ def agent_config(data: m.AgentConfig = body(m.AgentConfig)):
     return reply(res)
 
 
-def _provider(kind: str):
+def _provider(kind: str, http_ok: bool = False):
     kind = clip(kind, 40)
-    if kind not in providers.PROVIDERS or not providers.PROVIDERS[kind]["bin"]:
+    if kind not in providers.PROVIDERS or not (
+            providers.PROVIDERS[kind]["bin"] or (http_ok and providers.PROVIDERS[kind].get("http"))):
         return kind, {"ok": False, "error": f"{kind!r} is not a CLI provider"}
     if kind in providers.NEW_KINDS and not flags.enabled("ai_providers"):
         return kind, {"ok": False, "error": "turn on the ai_providers flag (Settings > Flags)"}
@@ -946,7 +947,7 @@ def _provider(kind: str):
                          "CLI only as an environment variable. Never read back: the listing says "
                          "only whether one is saved.")
 def agent_provider_key(data: m.AgentProviderKey = body(m.AgentProviderKey)):
-    kind, bad = _provider(data.kind)
+    kind, bad = _provider(data.kind, http_ok=True)
     if bad:
         return reply(bad)
     try:
@@ -997,7 +998,7 @@ def agent_provider_brain(data: m.AgentProviderInstall = body(m.AgentProviderInst
              description="One real call through the CLI with the saved key, if any. "
                          "**Starts a model call.**")
 def agent_provider_test(data: m.AgentProvider = body(m.AgentProvider)):
-    kind, bad = _provider(data.kind)
+    kind, bad = _provider(data.kind, http_ok=True)
     if bad:
         return reply(bad)
     c = agents.connector(agents.load_config(), kind) or {}

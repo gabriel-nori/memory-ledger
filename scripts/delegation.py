@@ -52,6 +52,10 @@ def active(cfg: dict[str, Any]) -> bool:
     return flags.enabled("ai_providers") and bool(clean(cfg.get("delegation"))["enabled"])
 
 
+def agents_connector(cfg: dict[str, Any], cid: str) -> dict[str, Any] | None:
+    return next((c for c in cfg.get("connectors") or [] if c.get("id") == cid), None)
+
+
 def prompt_section(cfg: dict[str, Any], cmd: str, own_connector: str) -> str:
     """What the delegating agent is told. The code enforces it again in `check`."""
     d = clean(cfg.get("delegation"))
@@ -66,6 +70,12 @@ def prompt_section(cfg: dict[str, Any], cmd: str, own_connector: str) -> str:
         "put nothing personal, private or secret in the brief. At most "
         f"{d['max_per_turn']} per turn, and it cannot delegate further. You stay responsible "
         "for the answer: check what comes back."]
+    if any((agents_connector(cfg, t) or {}).get("kind") == "hfspace" for t in targets):
+        lines.append("A Hugging Face Space connector makes one image from the brief and answers with "
+                     "the saved file path. It sends the brief to a third party's server. Ask for the "
+                     "minimum that serves: optional first lines `aspect=square|wide|tall|landscape|"
+                     "portrait|W:H` (omit for the smallest size) and `quality=draft|standard|final` "
+                     "(default draft); then the prompt.")
     if d["rules"]:
         lines.append("When to delegate: " + d["rules"])
     if d["never"]:

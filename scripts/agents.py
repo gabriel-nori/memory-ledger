@@ -245,6 +245,9 @@ def _clean_connector(c: Any, taken: set[str]) -> tuple[dict[str, Any] | None, st
         out["bin"] = str(c.get("bin") or "claude").strip()[:500]
         models = c.get("models") if isinstance(c.get("models"), list) else CLAUDE_MODELS
         out["models"] = [str(m).strip()[:120] for m in models if str(m).strip()][:20]
+    elif kind in providers.NEW_KINDS and providers.PROVIDERS[kind].get("http"):
+        out["models"] = []                    # listed live from the provider
+        out["default_model"] = out["default_model"] or providers.PROVIDERS[kind]["default_model"]
     elif kind in providers.NEW_KINDS:
         p = providers.PROVIDERS[kind]
         out["bin"] = str(c.get("bin") or p["bin"]).strip()[:500]
@@ -341,6 +344,29 @@ def cli_models(c: dict[str, Any]) -> list[str]:
     return models
 
 
+def _http_models(kind: str) -> list[str]:
+    hit = _CLI_MODELS.get(kind)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    models = providers.http_models(kind)
+    _CLI_MODELS[kind] = (time.time(), models)
+    return models
+
+
+def _free_spaces() -> list[str]:
+    """Image Spaces running on free hardware right now (public metadata, no GPU job), cached 5 minutes."""
+    import hf_space
+    hit = _CLI_MODELS.get("hfspace")
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    try:
+        models = [r["id"] for r in hf_space.list_spaces()]
+    except hf_space.SpaceError:
+        models = []
+    _CLI_MODELS["hfspace"] = (time.time(), models)
+    return models
+
+
 def connectors_payload(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Every connector with the models it offers right now."""
     cfg = cfg or load_config()
@@ -355,6 +381,14 @@ def connectors_payload(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]
                 row["default_model"] = models[0]
         elif c["kind"] in ("antigravity", "codex") and c.get("enabled") and not row.get("models"):
             row["models"] = cli_models(c)
+        elif c["kind"] == "hfspace" and c.get("enabled"):
+            row["models"] = _free_spaces()
+            row["problem"] = "" if providers.load_key("huggingface") else "no HF_TOKEN saved"
+            row["available"] = not row["problem"]
+        elif c["kind"] == "huggingface" and c.get("enabled"):
+            row["models"] = _http_models(c["kind"])
+            row["problem"] = "" if providers.load_key("huggingface") else "no HF_TOKEN saved"
+            row["available"] = not row["problem"]
         out.append(row)
     return out
 
@@ -808,7 +842,7 @@ def build_turn(con: sqlite3.Connection, reply: dict[str, Any]) -> dict[str, Any]
                  f"can go on, its last line is exactly {QUESTION_MARK}.)")
     cid = reply.get("connector") or (conv or {}).get("connector") or ""
     kind = (connector(cfg, cid) or {}).get("kind", "claude")
-    handoff = delegation.prompt_section(cfg, DELEGATE_CMD, cid) if kind != "ollama" else ""
+    handoff = delegation.prompt_section(cfg, DELEGATE_CMD, cid) if kind not in ("ollama", "huggingface", "hfspace") else ""
     system = "\n".join(x for x in (system_prompt(conv, len(history), kind), handoff,
                                     voice.reply_language_instruction(question)) if x)
     return {"system": system, "prompt": "\n".join(parts),
@@ -828,6 +862,7 @@ def system_prompt(conv: dict[str, Any] | None, carried: int, kind: str = "claude
     ]
     if conv:
         how = ("call the read_thread tool" if kind == "ollama" else
+               "ask the owner" if kind in ("huggingface", "hfspace") else
                f"run `{THREAD_CMD} {conv['id']}` (add `--limit N` for the last N messages)")
         lines.append(
             f"This conversation's id is {conv['id']}"
@@ -844,7 +879,10 @@ def system_prompt(conv: dict[str, Any] | None, carried: int, kind: str = "claude
         f"a question, suggest the answer you expect (before the {QUESTION_MARK} line, which "
         "stays last). Leave it out only when nothing obvious follows.",
     ]
-    if kind == "ollama":
+    if kind in ("huggingface", "hfspace"):
+        lines.append("You have no tools here: work from the owner's message and the recalled "
+                     "memory, and say so when that is not enough.")
+    elif kind == "ollama":
         lines.append("The brain is yours to read and write in every turn: look things up "
                      "with recall, search and get_node, and store what is worth keeping "
                      "(a fact, a decision, a to-do) with add_note and add_task, without "
@@ -1409,7 +1447,57 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
             "cost_usd": None, "cost_estimated": False}
 
 
-RUNNERS = {"claude": run_claude, "ollama": run_ollama, "gemini": run_cli, "antigravity": run_cli, "codex": run_cli}
+def run_huggingface(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
+                    turn: dict[str, Any]) -> dict[str, Any]:
+    """One text turn on Hugging Face Inference Providers (OpenAI-compatible chat). No tools:
+    the system prompt and the prompt go in as messages, the answer comes back whole."""
+    log = _Log(con, reply["id"])
+    if _is_cancelled(reply["id"]):
+        raise AgentError(CANCELLED)
+    try:
+        data = providers.http_chat("huggingface", reply["model"] or c.get("default_model") or "",
+                                   [{"role": "system", "content": turn["system"]},
+                                    {"role": "user", "content": turn["prompt"]}],
+                                   timeout=int(c.get("timeout_s") or 600))
+    except RuntimeError as e:
+        raise AgentError(str(e)) from None
+    text = re.sub(r"<think>.*?</think>", "", str(
+        ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""), flags=re.S).strip()
+    if not text:
+        raise AgentError("Hugging Face answered with nothing")
+    u = data.get("usage") or {}
+    tin, tout = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+    log.add({"kind": "text", "name": "said", "output": _clip(text)})
+    log.extra = {"tokens_in": tin, "tokens_out": tout}
+    log.flush(force=True)
+    return {"text": text, "events": log.events, "tokens": (tin, tout),
+            "cost_usd": None, "cost_estimated": False}
+
+
+def run_hfspace(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
+                turn: dict[str, Any]) -> dict[str, Any]:
+    """One image on a Hugging Face Space. The brief is the prompt; `aspect=` and `quality=` lines
+    at its top choose the size and steps, and the wrapper takes the minimum that fits."""
+    import hf_space
+    log = _Log(con, reply["id"])
+    if _is_cancelled(reply["id"]):
+        raise AgentError(CANCELLED)
+    prompt, opts = hf_space.brief_options(turn.get("question") or turn["prompt"])
+    try:
+        res = hf_space.generate(prompt, space=reply["model"] or c.get("default_model") or "",
+                                aspect=opts.get("aspect", "auto"),
+                                quality=opts.get("quality", hf_space.DEFAULT_QUALITY),
+                                timeout=float(c.get("timeout_s") or 300))
+    except hf_space.SpaceError as e:
+        raise AgentError(str(e)) from None
+    text = (f"Image saved at {res['path']} ({res['size']}, {res['steps']} steps, "
+            f"seed {res['seed']}, {res['space']}).")
+    log.add({"kind": "text", "name": "said", "output": _clip(text)})
+    log.flush(force=True)
+    return {"text": text, "events": log.events, "tokens": (0, 0), "cost_usd": None, "cost_estimated": False}
+
+
+RUNNERS = {"hfspace": run_hfspace, "huggingface": run_huggingface, "claude": run_claude, "ollama": run_ollama, "gemini": run_cli, "antigravity": run_cli, "codex": run_cli}
 
 
 # ---------------------------------------------------------------- running

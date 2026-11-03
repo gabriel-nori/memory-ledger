@@ -15,6 +15,8 @@ type Note = { text: string; tone: "success" | "error" };
  * connector. Below it, whether agents may hand tasks to another provider. A
  * saved key is never shown again, only that one is saved.
  */
+const isHttp = (kind: string) => kind === "huggingface" || kind === "hfspace";
+
 export function ProvidersCard({ writable }: { writable: boolean }) {
   const providers = useAsync((signal) => api.agentProviders(signal), []);
   const status = useAsync<AgentsStatus>((signal) => api.agents(signal), []);
@@ -87,7 +89,7 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
     <Card>
       <h2 className="ml-settings__h">AI providers</h2>
       <p className="ml-settings__hint">
-        Set up Claude, Gemini and ChatGPT (Codex) through their own CLIs. The default sign-in is the CLI&apos;s own;
+        Set up Claude, Gemini and ChatGPT (Codex) through their own CLIs, and Hugging Face through its API. The default sign-in is the CLI&apos;s own;
         an API key is optional and kept in a private file, never in <code>agents.json</code>. Ollama is set up above.
         {providers.data.enabled ? null : " Gemini and ChatGPT appear once the ai_providers flag is on (Settings > Flags)."}
       </p>
@@ -98,9 +100,9 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
             <li key={p.kind} className="ml-agents-card__row">
               <div className="ml-agents-card__top">
                 <strong>{p.title}</strong>
-                <Badge tone={p.installed ? "accent" : "warn"}>{p.installed ? `installed ${p.version ?? ""}`.trim() : "not installed"}</Badge>
+                {isHttp(p.kind) ? <Badge>HTTP API</Badge> : <Badge tone={p.installed ? "accent" : "warn"}>{p.installed ? `installed ${p.version ?? ""}`.trim() : "not installed"}</Badge>}
                 {p.has_key ? <Badge tone="accent">API key saved</Badge> : <Badge>CLI sign-in</Badge>}
-                {p.installed ? <Badge tone={p.brain ? "accent" : "warn"}>{p.brain ? "brain connected" : "brain not connected"}</Badge> : null}
+                {p.installed && !isHttp(p.kind) ? <Badge tone={p.brain ? "accent" : "warn"}>{p.brain ? "brain connected" : "brain not connected"}</Badge> : null}
               </div>
               {p.kind === "gemini" || p.kind === "antigravity" ? (
                 <div className="ml-agents-card__fields">
@@ -113,12 +115,23 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                   </Field>
                 </div>
               ) : null}
+              {isHttp(p.kind) ? (
+              <p className="ml-settings__hint">
+                {p.kind === "hfspace"
+                  ? <>Makes images on a Hugging Face Space, with the same token as Hugging Face above. The test call is free (it checks the token and that the Space is up);
+                    the model list shows only Spaces running on free hardware right now. Each image spends your daily ZeroGPU quota, and the prompt goes to the Space owner&apos;s server.
+                    Delegated briefs get the smallest size and fewest steps that fit.</>
+                  : <>No CLI: save a Hugging Face token (<code>{p.key_env}</code>, with the Inference Providers permission)
+                    below, run a test call, and add the connector. Text only: it answers, it does not edit files or run commands.</>}
+              </p>
+              ) : (
               <p className="ml-settings__hint">
                 1. Install: <code>{p.install}</code> &nbsp; 2. Sign in: run <code>{p.login}</code> in a terminal
                 {p.key_env ? <>, or save an API key (<code>{p.key_env}</code>) below</> : " (it opens the browser)"}. 3. Connect the brain, so the CLI can read and write it. 4. Test call.
                 5. Add the connector.
               </p>
-              {p.key_env ? (
+              )}
+              {p.key_env && p.kind !== "hfspace" ? (
               <div className="ml-agents-card__fields">
                 <Field label="API key" hint="Optional. Sent to the CLI as an environment variable.">
                   {(id) => (
@@ -129,15 +142,15 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
               </div>
               ) : null}
               <div className="ml-agents-card__add">
-                <Button size="sm" disabled={!writable || !!busy || p.installed} onClick={() => setConfirm(p)}>Install</Button>
-                {p.key_env ? <Button size="sm" disabled={!writable || !!busy || !(keys[p.kind] ?? "").trim()}
+                {isHttp(p.kind) ? null : <Button size="sm" disabled={!writable || !!busy || p.installed} onClick={() => setConfirm(p)}>Install</Button>}
+                {p.key_env && p.kind !== "hfspace" ? <Button size="sm" disabled={!writable || !!busy || !(keys[p.kind] ?? "").trim()}
                   onClick={() => run(p.kind, "key", async () => {
                     await api.saveProviderKey(p.kind, keys[p.kind]);
                     setKeys((k) => ({ ...k, [p.kind]: "" }));
                     providers.reload();
                     return { text: "Key saved.", tone: "success" };
                   })}>Save key</Button> : null}
-                {p.has_key ? (
+                {p.has_key && p.kind !== "hfspace" ? (
                   <Button size="sm" variant="danger" disabled={!writable || !!busy}
                     onClick={() => run(p.kind, "key", async () => {
                       await api.saveProviderKey(p.kind, "", true);
@@ -145,8 +158,8 @@ export function ProvidersCard({ writable }: { writable: boolean }) {
                       return { text: "Key removed.", tone: "success" };
                     })}>Remove key</Button>
                 ) : null}
-                <Button size="sm" disabled={!writable || !!busy || !p.installed || !!p.brain}
-                  onClick={() => setBrainFor(p)}>{p.brain ? "Brain connected" : "Connect brain"}</Button>
+                {isHttp(p.kind) ? null : <Button size="sm" disabled={!writable || !!busy || !p.installed || !!p.brain}
+                  onClick={() => setBrainFor(p)}>{p.brain ? "Brain connected" : "Connect brain"}</Button>}
                 <Button size="sm" disabled={!writable || !!busy || !p.installed}
                   onClick={() => run(p.kind, "test", async () => {
                     const r = await api.testProvider(p.kind);

@@ -521,3 +521,13 @@ language before it shows and before it is spoken (`POST /api/voice-translate`: o
 Haiku call per block, names, commands and identifiers kept; skipped when the block is
 already in the target). The original is behind an "original" expander. It is the only voice
 feature that calls a model, so it is off by default.
+
+## Hugging Face Space
+
+The `hfspace` connector makes one image on a Gradio Space (default
+`a-test-user-in-the-wrold/qwen-image-21-uncensored`) with the saved Hugging Face token, so a ZeroGPU Space
+spends the account's daily GPU quota, not Inference Providers credits. `scripts/hf_space.py` is the wrapper:
+`spaces` lists text-to-image Spaces running on free hardware (public metadata, no GPU job), and
+`generate --prompt ... [--aspect wide] [--quality draft]` asks for the smallest size the Space offers for the
+aspect and the fewest steps for the quality (draft 12, standard 20, final 28). Images land in `<home>/images/`.
+The Test call is free: it checks the token and that the Space is up. The prompt goes to a third party's server.

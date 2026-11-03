@@ -55,6 +55,21 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         # no model list to ship: the CLI picks its own default when none is given
         "models": [], "default_model": "",
     },
+    # Hugging Face Inference Providers: an HTTP API with an OpenAI-compatible chat endpoint, no CLI.
+    # Models come from the router's public /v1/models list (checked 2026-11-02). Text only: it
+    # answers, it does not edit files or run commands.
+    "huggingface": {
+        "title": "Hugging Face", "bin": "", "npm": "", "http": True,
+        "url": "https://router.huggingface.co/v1", "key_env": "HF_TOKEN", "check": [],
+        "login": "", "models": [], "default_model": "meta-llama/Llama-3.1-8B-Instruct",
+    },
+    # Image generation on a Hugging Face Space (hf_space.py). Same token as "huggingface", so the key
+    # is read from its file; ZeroGPU spends the account's daily GPU quota, not credits.
+    "hfspace": {
+        "title": "Hugging Face Space (image)", "bin": "", "npm": "", "http": True, "key_from": "huggingface",
+        "key_env": "HF_TOKEN", "check": [], "login": "", "models": [],
+        "default_model": "a-test-user-in-the-wrold/qwen-image-21-uncensored",
+    },
     "ollama": {
         "title": "Ollama", "bin": "", "npm": "", "key_env": "", "check": [], "login": "",
         "models": [], "default_model": "",
@@ -62,7 +77,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 # Providers that run as a local CLI (everything but Ollama's HTTP API).
 CLI_KINDS = tuple(k for k, p in PROVIDERS.items() if p["bin"])
-NEW_KINDS = ("gemini", "antigravity", "codex")         # behind the `ai_providers` flag
+NEW_KINDS = ("gemini", "antigravity", "codex", "huggingface", "hfspace")         # behind the `ai_providers` flag
 
 
 def _exe(kind: str, name: str = "") -> str:
@@ -88,7 +103,7 @@ def install_command(kind: str) -> str:
 def _key_path(kind: str) -> Path:
     if kind not in PROVIDERS or not PROVIDERS[kind]["key_env"]:
         raise ValueError(f"{kind!r} takes no API key")
-    return graph.home_dir() / SECRETS_DIR / f"{kind}.key"
+    return graph.home_dir() / SECRETS_DIR / f"{PROVIDERS[kind].get('key_from', kind)}.key"
 
 
 def save_key(kind: str, key: str) -> None:
@@ -164,7 +179,7 @@ def listing() -> list[dict[str, Any]]:
         out.append({"kind": kind, "title": p["title"], "install": install_command(kind),
                     "key_env": p["key_env"], "login": p["login"], "models": p["models"],
                     "has_key": bool(p["key_env"] and load_key(kind)),
-                    **(detect(kind) if p["bin"] else {}),
+                    **(detect(kind) if p["bin"] else {"installed": True} if p.get("http") else {}),
                     **brain_state(kind)})
     return out
 
@@ -358,6 +373,8 @@ def ping(kind: str, bin_name: str = "", timeout: int = 90) -> dict[str, Any]:
     with the key masked."""
     import _textio
     p = PROVIDERS.get(kind) or {}
+    if p.get("http"):
+        return ping_http(kind)
     if not p.get("bin"):
         return {"ok": False, "error": f"{kind!r} is not a CLI provider"}
     if not detect(kind, bin_name)["installed"]:
@@ -378,3 +395,53 @@ def ping(kind: str, bin_name: str = "", timeout: int = 90) -> dict[str, Any]:
         return {"ok": False, "error": redact(((r.stderr or "") or out).strip()[-600:], kind)
                 or f"{p['bin']} exited {r.returncode} without an answer"}
     return {"ok": True, "answer": redact(out[:200], kind)}
+
+
+# ---------------------------------------------------------------- http providers
+def http_chat(kind: str, model: str, messages: list[dict[str, str]], timeout: int = 600) -> dict[str, Any]:
+    """One non-streaming chat completion (OpenAI wire format) with the saved key. Raises
+    RuntimeError with the key masked."""
+    import json
+    import urllib.error
+    import urllib.request
+    p = PROVIDERS[kind]
+    key = load_key(kind)
+    if not key:
+        raise RuntimeError(f"save a {p['key_env']} first (Settings > AI providers)")
+    req = urllib.request.Request(
+        f"{p['url']}/chat/completions", data=json.dumps({"model": model, "messages": messages}).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(redact(f"{p['title']} answered {e.code}: "
+                                  f"{e.read().decode('utf-8', 'replace')[:400]}", kind)) from None
+    except (OSError, ValueError) as e:
+        raise RuntimeError(redact(f"could not reach {p['title']}: {e}", kind)) from None
+
+
+def http_models(kind: str, timeout: float = 5.0) -> list[str]:
+    """The model ids the provider lists (its public /models), [] when it cannot say."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{PROVIDERS[kind]['url']}/models", timeout=timeout) as r:
+            return sorted(m["id"] for m in json.loads(r.read().decode("utf-8")).get("data") or []
+                          if m.get("id"))
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def ping_http(kind: str) -> dict[str, Any]:
+    if kind == "hfspace":
+        import hf_space
+        return hf_space.ping()
+    try:
+        data = http_chat(kind, PROVIDERS[kind]["default_model"],
+                         [{"role": "user", "content": "Reply with the single word: ok"}], timeout=60)
+        out = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": bool(out), "answer": redact(out[:200], kind)} if out else \
+        {"ok": False, "error": "the provider answered with nothing"}
