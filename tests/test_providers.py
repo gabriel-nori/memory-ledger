@@ -84,9 +84,9 @@ def test_antigravity_asks_before_tools_unless_they_are_on(cli):
     _run("antigravity", exe)
     _run("antigravity", exe, full=True)
     ro, full = calls()
-    assert ro["argv"] == ["-p", "", "--input-format", "text", "--output-format", "text"]
+    assert ro["argv"][0] == "-p" and "SYS" in ro["argv"][1] and "PROMPT" in ro["argv"][1]
+    assert ro["argv"][2:] == ["--output-format", "text"]
     assert full["argv"][-1] == "--dangerously-skip-permissions"
-    assert "PROMPT" in ro["stdin"]
     assert providers.PROVIDERS["antigravity"]["key_env"] == ""      # account sign-in, no key
     assert "install.sh" in providers.install_command("antigravity") or os.name == "nt"
 

@@ -331,7 +331,7 @@ def cli_models(c: dict[str, Any]) -> list[str]:
     try:
         if kind == "antigravity":
             r = subprocess.run([providers._exe(kind, c.get("bin") or ""), "models"],
-                               capture_output=True, text=True, timeout=15)
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
             models = [ln.split("\t")[0].strip() for ln in r.stdout.splitlines() if "\t" in ln]
         elif kind == "codex":
             home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
