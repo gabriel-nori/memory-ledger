@@ -43,7 +43,7 @@ MEDIA = {"md": "text/markdown; charset=utf-8", "txt": "text/plain; charset=utf-8
          "html": "text/html; charset=utf-8", "pdf": "application/pdf"}
 IMAGE_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
-AREAS = ("exports", "attachments")
+AREAS = ("exports", "attachments", "images")
 
 
 def root(area: str = "exports") -> Path:

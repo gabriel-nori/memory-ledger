@@ -9,6 +9,8 @@
  *   [name](doc:documents/report.html)  a document card, on a line of its own
  *   [name](attach:<path>)              the same, for a file the owner attached
  *
+ * Two or more `img:` links in a row are one gallery.
+ *
  * A line that is none of these joins the paragraph above it. Code fences are
  * left inside the text, because `parseRich` already reads those.
  */
@@ -20,16 +22,17 @@ export type Block =
   | { t: "quote"; v: string }
   | { t: "hr" }
   | { t: "table"; head: string[]; rows: string[][] }
-  | { t: "doc"; name: string; path: string; area: DocArea };
+  | { t: "doc"; name: string; path: string; area: DocArea }
+  | { t: "gallery"; images: { name: string; path: string }[] };
 
-/** Where a document lives: `doc:` is under <home>/exports, `attach:` under <home>/attachments. */
-export type DocArea = "exports" | "attachments";
+/** Where a document lives: `doc:` is under <home>/exports, `attach:` under <home>/attachments, `img:` under <home>/images (what an image model made). */
+export type DocArea = "exports" | "attachments" | "images";
 
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const BULLET = /^\s*[-*+]\s+(.*)$/;
 const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
-const DOC = /^\s*\[([^\]\n]+)\]\((doc|attach):([^)\s]+)\)\s*$/;
+const DOC = /^\s*\[([^\]\n]+)\]\((doc|attach|img):([^)\s]+)\)\s*$/;
 const ATTACH_LINE = /^\s*\[([^\]\n]+)\]\(attach:([^)\s]+)\)\s*$/;
 const FENCE_LINE = /^\s*```/;
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
@@ -67,7 +70,12 @@ export function parseBlocks(text: string): Block[] {
     const doc = DOC.exec(line);
     if (doc && safeDocPath(doc[3])) {
       flush();
-      out.push({ t: "doc", name: doc[1], path: doc[3], area: doc[2] === "attach" ? "attachments" : "exports" });
+      const area: DocArea = doc[2] === "attach" ? "attachments" : doc[2] === "img" ? "images" : "exports";
+      const last = out[out.length - 1];
+      if (area === "images" && last?.t === "gallery") last.images.push({ name: doc[1], path: doc[3] });
+      else if (area === "images" && last?.t === "doc" && last.area === "images" && !para.length)
+        out[out.length - 1] = { t: "gallery", images: [{ name: last.name, path: last.path }, { name: doc[1], path: doc[3] }] };
+      else out.push({ t: "doc", name: doc[1], path: doc[3], area });
       continue;
     }
     const h = HEADING.exec(line);

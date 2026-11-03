@@ -170,7 +170,7 @@ export const api = {
   agentConversations: (signal?: AbortSignal) =>
     get<import("./types").AgentConversations>("/api/agent-conversations", undefined, signal),
   /** A document an agent wrote, by its path under <home>/exports. */
-  document: (path: string, area: "exports" | "attachments" = "exports", signal?: AbortSignal) =>
+  document: (path: string, area: "exports" | "attachments" | "images" = "exports", signal?: AbortSignal) =>
     get<import("./types").AgentDocument>("/api/document", area === "exports" ? { path } : { path, area }, signal),
   voice: (signal?: AbortSignal) => get<import("./types").VoiceStatus>("/api/voice", undefined, signal),
   customTriggers: (signal?: AbortSignal) =>
@@ -463,5 +463,5 @@ export const api = {
 export type Api = typeof api;
 
 /** The raw bytes of a document, for an iframe. */
-export const documentFileUrl = (path: string, area: "exports" | "attachments" = "exports") =>
+export const documentFileUrl = (path: string, area: "exports" | "attachments" | "images" = "exports") =>
   `${BASE}/api/document-file${queryString(area === "exports" ? { path } : { path, area })}`;

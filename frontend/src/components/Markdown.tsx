@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { parseBlocks } from "@/lib/markdown";
 import { RichText } from "./RichText";
-import { DocCard } from "./DocCard";
+import { DocCard, ImageGallery } from "./DocCard";
 import "./Markdown.css";
 
 /**
@@ -48,6 +48,8 @@ export function Markdown({ text }: { text: string }) {
             );
           case "doc":
             return <DocCard key={i} name={b.name} path={b.path} area={b.area} />;
+          case "gallery":
+            return <ImageGallery key={i} images={b.images} />;
         }
       })}
     </div>

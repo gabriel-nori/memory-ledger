@@ -1474,6 +1474,31 @@ def run_huggingface(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str,
             "cost_usd": None, "cost_estimated": False}
 
 
+IMG_LINK = re.compile(r"^\[[^\]\n]+\]\(img:[^)\s]+\)[ \t]*$", re.M)
+
+
+def image_link(path: str) -> str:
+    """`[name](img:file)` for an image saved in <home>/images, else ''."""
+    try:
+        rel = Path(path).resolve().relative_to(documents.root("images"))
+    except ValueError:
+        return ""
+    name = re.sub(r"[\[\]()]", "", rel.name)
+    return f"[{name}](img:{rel.as_posix()})"
+
+
+def with_generated_images(con: sqlite3.Connection, msg_id: str, text: str) -> str:
+    """The reply, plus the image links of the sub-agents it handed a task to that it did not repeat."""
+    have = set(IMG_LINK.findall(text))
+    add = []
+    for r in con.execute("SELECT text FROM agent_msg WHERE reply_to=? AND role='subagent' ORDER BY at", (msg_id,)):
+        for link in IMG_LINK.findall(r["text"] or ""):
+            if link not in have:
+                have.add(link)
+                add.append(link)
+    return text.rstrip() + "\n\n" + "\n".join(add) if add else text
+
+
 def run_hfspace(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
                 turn: dict[str, Any]) -> dict[str, Any]:
     """One image on a Hugging Face Space. The brief is the prompt; `aspect=` and `quality=` lines
@@ -1492,6 +1517,9 @@ def run_hfspace(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any
         raise AgentError(str(e)) from None
     text = (f"Image saved at {res['path']} ({res['size']}, {res['steps']} steps, "
             f"seed {res['seed']}, {res['space']}).")
+    link = image_link(res["path"])
+    if link:
+        text += "\n\n" + link
     log.add({"kind": "text", "name": "said", "output": _clip(text)})
     log.flush(force=True)
     return {"text": text, "events": log.events, "tokens": (0, 0), "cost_usd": None, "cost_estimated": False}
@@ -1566,6 +1594,8 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
     text, nxt = strip_next(res["text"])
     text, asked = strip_mark(text)
     status = "question" if asked else "done"
+    if reply["role"] != "subagent":
+        text = with_generated_images(con, msg_id, text)
     extra: dict[str, Any] = {}
     if res.get("cut_off"):
         # the process has exited, so a sub-agent left in the background died with it

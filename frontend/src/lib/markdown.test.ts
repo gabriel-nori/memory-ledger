@@ -56,3 +56,12 @@ describe("attachments", () => {
     expect(splitAttachments("[x](attach:../secret)").files).toEqual([]);
   });
 });
+
+describe("image galleries", () => {
+  it("keeps one image as a doc and groups two or more into a gallery", () => {
+    expect(parseBlocks("[a.webp](img:a.webp)")).toEqual([{ t: "doc", name: "a.webp", path: "a.webp", area: "images" }]);
+    expect(parseBlocks("[a.webp](img:a.webp)\n[b.webp](img:b.webp)\n[c.webp](img:c.webp)")).toEqual([
+      { t: "gallery", images: [{ name: "a.webp", path: "a.webp" }, { name: "b.webp", path: "b.webp" }, { name: "c.webp", path: "c.webp" }] },
+    ]);
+  });
+});

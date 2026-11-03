@@ -127,3 +127,15 @@ def test_traversal_out_of_attachments_is_refused(home):
 
 def test_an_unknown_area_falls_back_to_exports(home):
     assert documents.root("zzz") == documents.root("exports")
+
+
+def test_generated_images_are_readable_and_linked(tmp_path, monkeypatch):
+    import agents
+    import graph
+    monkeypatch.setattr(graph, "home_dir", lambda: tmp_path)
+    (tmp_path / "images").mkdir()
+    img = tmp_path / "images" / "hf-1.webp"
+    img.write_bytes(b"x")
+    assert documents.resolve("hf-1.webp", "images") == img.resolve()
+    assert agents.image_link(str(img)) == "[hf-1.webp](img:hf-1.webp)"
+    assert agents.image_link(str(tmp_path / "other.webp")) == ""

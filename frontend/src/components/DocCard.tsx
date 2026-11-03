@@ -66,6 +66,43 @@ export function DocCard({ name, path, area = "exports" }: { name: string; path: 
   );
 }
 
+/** Images made together: a grid of thumbnails; a click opens the viewer on that one, with arrows to step through all. */
+export function ImageGallery({ images }: { images: { name: string; path: string }[] }) {
+  const [at, setAt] = useState<number | null>(null);
+  const step = (d: number) => setAt((i) => (i === null ? i : (i + d + images.length) % images.length));
+  useEffect(() => {
+    if (at === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") step(-1);
+      else if (e.key === "ArrowRight") step(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [at, images.length]);
+  const shown = at === null ? null : images[at];
+  return (
+    <>
+      <div className="ml-doc__gallery" role="group" aria-label={`${images.length} images`}>
+        {images.map((im, i) => (
+          <button key={im.path} type="button" className="ml-doc__thumb" aria-label={`Expand ${im.name}`} onClick={() => setAt(i)}>
+            <img src={documentFileUrl(im.path, "images")} alt={im.name} loading="lazy" />
+          </button>
+        ))}
+      </div>
+      {shown ? (
+        <Modal title={shown.name} subtitle={`${(at ?? 0) + 1} / ${images.length}`} width="min(1100px, 96vw)" onClose={() => setAt(null)}>
+          <p>
+            <Button size="sm" onClick={() => step(-1)} aria-label="Previous image">Previous</Button>{" "}
+            <Button size="sm" onClick={() => step(1)} aria-label="Next image">Next</Button>{" "}
+            <DownloadLink name={shown.name} src={documentFileUrl(shown.path, "images")} />
+          </p>
+          <img className="ml-doc__image" src={documentFileUrl(shown.path, "images")} alt={shown.name} />
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
 function DocBody({ path, area }: { path: string; area: DocArea }) {
   const [doc, setDoc] = useState<AgentDocument | null>(null);
   const [error, setError] = useState("");
