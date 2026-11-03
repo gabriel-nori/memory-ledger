@@ -257,6 +257,7 @@ class TriggerConfig(Body):
                                            "(`{kind: {on, do}}`, `do` being that event's run "
                                            "command), and the write-only `token`. An unknown "
                                            "`{variable}` in a run command is refused.")
+    inbound_http: _obj = Field(None, description="`enabled`: whether the server opens the listeners of the inbound HTTP triggers that are on.")
     clear: Optional[list[LooseStr]] = Field(None, description="Secrets to remove, e.g. "
                                                               "`[\"slack.user_token\"]`.")
 

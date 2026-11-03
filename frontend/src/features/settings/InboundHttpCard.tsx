@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useAsync } from "@/hooks/useAsync";
-import { Badge, Button, Card, Checkbox, EmptyState, Field, Spinner, StatusMessage, TextArea, TextInput } from "@/components";
-import type { InboundHttpDetail, InboundHttpTrigger, InboundHttpTriggersPayload, InboundHttpVerdict } from "@/api/types";
+import { Badge, Button, Card, Checkbox, EmptyState, Field, Spinner, StatusMessage, TextInput } from "@/components";
+import type { InboundHttpDetail, InboundHttpFields, InboundHttpTrigger, InboundHttpTriggersPayload, InboundHttpVerdict } from "@/api/types";
 import "./SettingsSection.css";
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -160,11 +160,16 @@ export function InboundHttpCard({ writable }: { writable: boolean }) {
           key={open}
           id={open}
           isNew={isNew}
-          template={data.template.split("my-way-in").join(open)}
+          defaults={data.defaults}
           writable={writable}
           onSaved={(res) => {
             setIsNew(false);
-            if (res.token) setNote({ text: `Token for ${open} (shown once): ${res.token}`, tone: "info" });
+            setOpen(null);
+            setNote(
+              res.token
+                ? { text: `Token for ${open} (shown once): ${res.token}`, tone: "info" }
+                : { text: `Saved ${open}.`, tone: "success" },
+            );
             list.reload();
           }}
         />
@@ -257,16 +262,39 @@ function Row({
   );
 }
 
+const TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
+
+/** The file the fields stand for. JSON strings are valid YAML, so quoting is safe. */
+function toYaml(id: string, f: InboundHttpFields): string {
+  const q = (v: string) => JSON.stringify(v);
+  return [
+    `id: ${id}`,
+    "type: inbound-http",
+    `name: ${q(f.name || id)}`,
+    `enabled: ${f.enabled}`,
+    `port: ${f.port ?? ""}`,
+    `bind_ips: [${f.bind_ips.map(q).join(", ")}]`,
+    `throttle: {per_minute: ${f.per_minute}}`,
+    `rate: {daily_budget_usd: ${f.daily_budget_usd}, tz: ${q(f.tz)}}`,
+    `attachments: {max_mb: ${f.max_mb}, types: [${f.types.map(q).join(", ")}]}`,
+    `jokes: {every_n_min: ${f.joke_min}, every_n_max: ${f.joke_max}}`,
+    `skill: ${q(f.skill)}`,
+    "",
+  ].join("\n");
+}
+
+const num = (v: string) => (v === "" ? NaN : Number(v));
+
 function Editor({
   id,
   isNew,
-  template,
+  defaults,
   writable,
   onSaved,
 }: {
   id: string;
   isNew: boolean;
-  template: string;
+  defaults: InboundHttpFields;
   writable: boolean;
   onSaved: (res: InboundHttpVerdict) => void;
 }) {
@@ -274,24 +302,31 @@ function Editor({
     (signal) => (isNew ? Promise.resolve(null) : api.inboundHttpTrigger(id, signal)),
     [id, isNew],
   );
-  const [text, setText] = useState<string | null>(null);
+  const [f, setF] = useState<InboundHttpFields | null>(null);
+  const [ips, setIps] = useState("");
   const [verdict, setVerdict] = useState<InboundHttpVerdict | null>(null);
   const [busy, setBusy] = useState("");
   const [out, setOut] = useState<{ text: string; tone: "success" | "error" } | null>(null);
 
   useEffect(() => {
-    if (isNew) setText(template);
-    else if (detail.data) {
-      setText(detail.data.text);
-      setVerdict({ ok: true, valid: detail.data.errors.length === 0, errors: detail.data.errors, warnings: detail.data.warnings });
-    }
-  }, [detail.data, isNew, template]);
+    const src = isNew ? { ...defaults, name: id, enabled: false } : detail.data?.fields;
+    if (!src) return;
+    setF(src);
+    setIps(src.bind_ips.join(", "));
+    if (detail.data) setVerdict({ ok: true, valid: detail.data.errors.length === 0, errors: detail.data.errors, warnings: detail.data.warnings });
+  }, [detail.data, isNew, defaults, id]);
 
   if (detail.loading && !detail.data && !isNew) return <Spinner label={`reading ${id}`} />;
   if (detail.error) return <StatusMessage tone="error">{detail.error}</StatusMessage>;
-  if (text === null) return null;
+  if (f === null) return null;
   const saved = isNew ? null : detail.data;
-  const dirty = saved ? text !== saved.text : true;
+  const cur: InboundHttpFields = { ...f, bind_ips: ips.split(",").map((x) => x.trim()).filter(Boolean) };
+  const text = toYaml(id, cur);
+  const dirty = isNew || (saved ? text !== toYaml(id, saved.fields) : true);
+  const set = <K extends keyof InboundHttpFields>(k: K, v: InboundHttpFields[K]) => {
+    setF({ ...f, [k]: v });
+    setVerdict(null);
+  };
 
   const run = async (what: "validate" | "save") => {
     setBusy(what);
@@ -301,10 +336,11 @@ function Editor({
         setVerdict(await api.saveInboundHttpTrigger(id, text, true));
       } else {
         const res = await api.saveInboundHttpTrigger(id, text);
-        setVerdict({ ...res, valid: true });
-        setOut({ text: res.created ? `Created ${id}.` : `Saved ${id}.`, tone: "success" });
-        onSaved(res);
-        detail.reload();
+        if (res.saved === false || res.valid === false) {
+          setVerdict(res);
+        } else {
+          onSaved(res);
+        }
       }
     } catch (err) {
       setOut({ text: err instanceof Error ? err.message : String(err), tone: "error" });
@@ -313,36 +349,58 @@ function Editor({
     }
   };
 
+  const off = !writable;
   return (
     <div className="ml-settings__preview">
       <h3 className="ml-settings__h3">
-        <code>{id}.yaml</code>
+        <code>{id}</code>
         {isNew ? " (new, not saved)" : dirty ? " (changed, not saved)" : ""}
       </h3>
-      <Field
-        label="Way-in file"
-        hint="YAML: port, bind_ips (IPs and CIDRs, checked against the TCP peer), throttle.per_minute, daily budget, attachments."
-      >
-        {(fid) => (
-          <TextArea
-            id={fid}
-            className="ml-custom__editor"
-            rows={14}
-            spellCheck={false}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setVerdict(null);
-            }}
-            disabled={!writable}
+      <div className="ml-settings__grid">
+        <Field label="Name">{(fid) => <TextInput id={fid} value={f.name} disabled={off} onChange={(e) => set("name", e.target.value)} />}</Field>
+        <Field label="Port" hint="8801-8899, one per way in">
+          {(fid) => <TextInput id={fid} type="number" value={f.port ?? ""} disabled={off} onChange={(e) => set("port", num(e.target.value))} />}
+        </Field>
+        <Field label="Allowed IPs" hint='"*" or IPs and CIDRs, comma-separated; checked against the TCP peer'>
+          {(fid) => <TextInput id={fid} value={ips} disabled={off} onChange={(e) => { setIps(e.target.value); setVerdict(null); }} />}
+        </Field>
+        <Field label="Calls per minute" hint="over it: 429">
+          {(fid) => <TextInput id={fid} type="number" min={1} value={f.per_minute} disabled={off} onChange={(e) => set("per_minute", num(e.target.value))} />}
+        </Field>
+        <Field label="Daily budget (USD)">
+          {(fid) => <TextInput id={fid} type="number" min={0} step="any" value={f.daily_budget_usd} disabled={off} onChange={(e) => set("daily_budget_usd", num(e.target.value))} />}
+        </Field>
+        <Field label="Time zone" hint="where the day ends, e.g. America/Sao_Paulo">
+          {(fid) => <TextInput id={fid} value={f.tz} disabled={off} onChange={(e) => set("tz", e.target.value)} />}
+        </Field>
+        <Field label="Attachment max (MB)">
+          {(fid) => <TextInput id={fid} type="number" min={1} max={100} value={f.max_mb} disabled={off} onChange={(e) => set("max_mb", num(e.target.value))} />}
+        </Field>
+        <Field label="Joke every N messages, from">
+          {(fid) => <TextInput id={fid} type="number" min={1} value={f.joke_min} disabled={off} onChange={(e) => set("joke_min", num(e.target.value))} />}
+        </Field>
+        <Field label="Joke every N messages, to">
+          {(fid) => <TextInput id={fid} type="number" min={1} value={f.joke_max} disabled={off} onChange={(e) => set("joke_max", num(e.target.value))} />}
+        </Field>
+        <Field label="Skill">{(fid) => <TextInput id={fid} value={f.skill} disabled={off} onChange={(e) => set("skill", e.target.value)} />}</Field>
+      </div>
+      <div>
+        <div className="ml-settings__note">Attachment types</div>
+        {TYPES.map((t) => (
+          <Checkbox
+            key={t}
+            checked={f.types.includes(t)}
+            onChange={(v) => set("types", v ? [...f.types, t] : f.types.filter((x) => x !== t))}
+            label={t}
+            disabled={off}
           />
-        )}
-      </Field>
+        ))}
+      </div>
       <div className="ml-settings__foot">
         <Button onClick={() => void run("validate")} disabled={!!busy}>
           {busy === "validate" ? "Validating…" : "Validate"}
         </Button>
-        <Button variant="primary" onClick={() => void run("save")} disabled={!writable || !!busy || !dirty}>
+        <Button variant="primary" onClick={() => void run("save")} disabled={off || !!busy || !dirty}>
           {busy === "save" ? "Saving…" : "Save"}
         </Button>
       </div>

@@ -234,6 +234,13 @@ def settings(defn: dict) -> dict:
             "skill": defn.get("skill") or "inbound-http-respond"}
 
 
+def fields(defn) -> dict:
+    """The form the page edits: the definition's fields, defaults filled in. The file is rebuilt from these."""
+    st = settings(defn) if isinstance(defn, dict) else {}
+    return {"name": (defn or {}).get("name") or (defn or {}).get("id") or "", "enabled": (defn or {}).get("enabled") is True,
+            **st}
+
+
 def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
     """{ok, errors, warnings}. The shape only: nothing is opened, nothing runs."""
     errors, warnings = [], []
@@ -1117,7 +1124,7 @@ def detail(tid: str, con=None, limit: int = 20) -> dict:
         return {"ok": False, "error": err or f"{tid} is not an inbound-http trigger"}
     text = ct.raw_text(tid)
     return {"ok": True, "id": tid, "text": text, **check_text(tid, text), "summary": summary(tid, con),
-            "calls": calls(con, tid, limit)}
+            "fields": fields(defn), "calls": calls(con, tid, limit)}
 
 
 def delete(con, tid: str) -> dict:
@@ -1141,7 +1148,7 @@ def listing(cfg: dict | None = None) -> dict:
             "active": trigger.source_enabled(cfg, CONFIG_KEY),
             "port_range": list(PORT_RANGE),
             "triggers": [summary(t, con) for t in list_ids()],
-            "template": template()}
+            "template": template(), "defaults": fields({"port": free_port(), "rate": {"tz": "America/Sao_Paulo"}})}
 
 
 def cli(action: str, tid: str = "", **kw) -> dict:

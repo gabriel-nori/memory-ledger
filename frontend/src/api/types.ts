@@ -1627,7 +1627,13 @@ export interface InboundHttpTrigger {
   token?: "set" | "revoked" | "none"; quota?: { available: boolean; resume_at?: string } | null;
   bind_ips?: string[] | null; per_minute?: number | null; users?: number;
 }
+/** The form behind a way in's file: the page rebuilds the YAML from these. */
+export interface InboundHttpFields {
+  name: string; enabled: boolean; port: number | null; bind_ips: string[]; per_minute: number;
+  daily_budget_usd: number; tz: string; max_mb: number; types: string[]; joke_min: number; joke_max: number; skill: string;
+}
 export interface InboundHttpTriggersPayload extends Envelope {
+  defaults: InboundHttpFields;
   dir: string;
   /** `inbound_http.enabled` in trigger.json. */
   enabled: boolean;
@@ -1643,7 +1649,7 @@ export interface InboundHttpCall {
   id: number; at: string; method: string; path: string; peer: string; status: number; user_id: string;
 }
 export interface InboundHttpDetail extends Envelope {
-  id: string; text: string; errors: string[]; warnings: string[];
+  id: string; text: string; errors: string[]; warnings: string[]; fields: InboundHttpFields;
   summary: InboundHttpTrigger; calls: InboundHttpCall[];
 }
 export interface InboundHttpVerdict extends Envelope {

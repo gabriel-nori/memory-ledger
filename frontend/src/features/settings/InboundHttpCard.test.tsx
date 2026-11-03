@@ -37,26 +37,29 @@ describe("InboundHttpCard", () => {
     expect(sent("/api/inbound-http-action")).toEqual([{ id: "site-chat", action: "regenerate" }]);
   });
 
-  it("opens a file, validates it, and shows the calls", async () => {
+  it("opens the fields, validates what they build, and shows the calls", async () => {
     const { user } = renderApp(<InboundHttpCard writable />, { route: "/settings" });
     await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]);
-    const editor = await screen.findByLabelText("Way-in file");
-    expect((editor as HTMLTextAreaElement).value).toContain("type: inbound-http");
+    const port = await screen.findByLabelText(/^Port/);
+    expect((port as HTMLInputElement).value).toBe("8801");
     expect(screen.getByRole("table", { name: "calls" })).toBeInTheDocument();
-    await user.clear(editor);
-    await user.type(editor, "id: site-chat{enter}port: 80{enter}");
+    await user.clear(port);
+    await user.type(port, "80");
     await user.click(screen.getByRole("button", { name: "Validate" }));
     expect(await screen.findByText("port must be a whole number from 8801 to 8899")).toBeInTheDocument();
-    expect(sent("/api/inbound-http-trigger").every((b) => (b as { check_only: boolean }).check_only)).toBe(true);
+    const bodies = sent("/api/inbound-http-trigger") as { check_only: boolean; text: string }[];
+    expect(bodies.every((b) => b.check_only)).toBe(true);
+    expect(bodies[0].text).toContain("port: 80\n");
   });
 
-  it("creates a new way in from the template and shows its token once", async () => {
+  it("creates a new way in from the fields, shows its token once and folds the editor", async () => {
     const { user } = renderApp(<InboundHttpCard writable />, { route: "/settings" });
     await user.type(await screen.findByLabelText("New way in, id"), "second");
     await user.click(screen.getByRole("button", { name: "New way in" }));
-    const editor = await screen.findByLabelText("Way-in file");
-    expect((editor as HTMLTextAreaElement).value).toContain("id: second");
+    expect(((await screen.findByLabelText("Name")) as HTMLInputElement).value).toBe("second");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(/Token for second \(shown once\): inb_shown-once/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect((sent("/api/inbound-http-trigger").at(-1) as { text: string }).text).toContain("id: second");
   });
 });
