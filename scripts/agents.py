@@ -122,9 +122,9 @@ DEFAULTS: dict[str, Any] = {
     "connectors": [
         {"id": "claude", "name": "Claude", "kind": "claude", "enabled": True,
          "bin": "claude", "models": CLAUDE_MODELS, "default_model": "claude-sonnet-5-5",
-         "timeout_s": 900},
+         "timeout_s": 7200},
         {"id": "ollama", "name": "Ollama", "kind": "ollama", "enabled": True,
-         "url": "http://127.0.0.1:11434", "default_model": "", "timeout_s": 600,
+         "url": "http://127.0.0.1:11434", "default_model": "", "timeout_s": 7200,
          "max_rounds": 8},
     ],
 }

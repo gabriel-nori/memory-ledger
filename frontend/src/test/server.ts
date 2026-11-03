@@ -52,6 +52,7 @@ function write(path: string, respond: (body: never) => Response = () => ok()) {
 }
 
 export const handlers = [
+  http.get("/api/portal-triggers", () => HttpResponse.json({ ok: true, triggers: [] })),
   http.get("/api/meta", () => HttpResponse.json(metaFixture)),
   http.get("/api/graph", () => HttpResponse.json(graphFixture)),
   http.get("/api/views", () =>

@@ -30,6 +30,7 @@ import b2b
 import custom_trigger
 import documents
 import graph
+import portal_trigger
 import trigger
 import voice
 
@@ -682,6 +683,18 @@ def trigger_reprocess(data: m.TriggerReprocess = body(m.TriggerReprocess)):
     if ran:
         res["runs_on"] = ran["on"]
     return reply(res)
+
+
+@router.post("/portal-action", tags=["trigger"], summary="Revoke, regenerate, ban or unban on a portal trigger",
+             description="`regenerate` kills the old token at once and returns the new one, "
+                         "shown this once. `revoke` kills it without a new one. `ban` and "
+                         "`unban` take an `email` and/or an `ip`.")
+def portal_action(data: m.PortalAction = body(m.PortalAction)):
+    act = clip(data.action, 20)
+    if act not in ("regenerate", "revoke", "ban", "unban"):
+        return reply({"ok": False, "error": "action must be regenerate, revoke, ban or unban"})
+    return reply(trigger.portal_cli(act, clip(data.id, 64), email=clip(data.email, 200),
+                                    ip=clip(data.ip, 60), reason=clip(data.reason, 300)))
 
 
 @router.post("/trigger-cancel", tags=["trigger"], summary="Stop a queued or running request",

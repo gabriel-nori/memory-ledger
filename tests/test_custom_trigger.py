@@ -209,7 +209,7 @@ REJECTED = [
      "secret MISSING"),
     ("limits that is not a mapping", {**with_blocks(GOOD_EMIT), "limits": 3},
      "limits is a mapping"),
-    ("timeout out of range", {**with_blocks(GOOD_EMIT), "limits": {"timeout_s": 601}},
+    ("timeout out of range", {**with_blocks(GOOD_EMIT), "limits": {"timeout_s": 7201}},
      "limits.timeout_s"),
     ("timeout that is a bool", {**with_blocks(GOOD_EMIT), "limits": {"timeout_s": True}},
      "limits.timeout_s"),

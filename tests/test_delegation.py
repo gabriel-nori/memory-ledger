@@ -120,5 +120,5 @@ def test_the_block_is_cleaned(module_brain_home):
     d = delegation.clean({"enabled": "yes", "targets": ["a", " "], "max_per_turn": 99,
                           "timeout_s": "x", "blocked_realms": "no"})
     assert d["enabled"] is False and d["targets"] == ["a"] and d["max_per_turn"] == 10
-    assert d["timeout_s"] == 600 and d["blocked_realms"] == ["personal"]
+    assert d["timeout_s"] == 7200 and d["blocked_realms"] == ["personal"]
     json.dumps(d)

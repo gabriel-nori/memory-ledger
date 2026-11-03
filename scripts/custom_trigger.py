@@ -47,7 +47,7 @@ MIN_INTERVAL_S = 30
 MAX_EVENTS_DEFAULT = 20
 OUTPUT_MAX = 1_000_000          # what the child may print; more is an error
 STDERR_MAX = 64_000
-LIMITS = {"timeout_s": (1, 600, 60), "memory_mb": (32, 2048, 256)}
+LIMITS = {"timeout_s": (1, 7200, 60), "memory_mb": (32, 2048, 256)}
 RETRY = {"attempts": (1, 5, 1), "backoff_s": (0, 60, 5)}
 BLOCK_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}")
 SECRET_NAME_RE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
@@ -128,6 +128,12 @@ def load(tid: str) -> tuple:
     if not isinstance(defn, dict):
         return None, f"{p.name} must hold a mapping"
     return defn, ""
+
+
+def is_portal_file(tid: str) -> bool:
+    """A `type: portal` file shares the folder; portal_trigger.py owns it."""
+    defn, err = load(tid)
+    return not err and defn.get("type") == "portal"
 
 
 def list_ids() -> list:
@@ -317,6 +323,9 @@ def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
     errors, warnings = [], []
     if not isinstance(defn, dict):
         return {"ok": False, "errors": ["a trigger is a mapping"], "warnings": []}
+    if defn.get("type") == "portal":
+        return {"ok": False, "errors": ["type: portal is not a custom trigger; use "
+                                        "`trigger.py portal ...`"], "warnings": []}
     tid = defn.get("id")
     if not id_ok(tid):
         errors.append("id must be letters, digits, - and _")
@@ -679,7 +688,7 @@ def run_due(cfg: dict, dispatch, con=None) -> list:
         if err:
             _set_state(con, tid, last_status="invalid", last_error=err[:500])
             continue
-        if defn.get("enabled") is not True:
+        if defn.get("type") == "portal" or defn.get("enabled") is not True:
             continue
         lock = _lock_for(tid)
         if not lock.acquire(blocking=False):

@@ -1619,3 +1619,13 @@ export interface UpdateInfo extends Envelope {
   url: string;
   error: string;
 }
+
+export interface PortalBan { id: number; email: string; ip: string; reason: string; lifted_at: string }
+export interface PortalStrike { email: string; count: number; updated: string }
+export interface PortalTrigger {
+  id: string; ok: boolean; error?: string; enabled?: boolean; port?: number;
+  token?: "set" | "revoked" | "none"; quota?: { available: boolean; resume_at?: string } | null;
+  chats?: number; bans?: number; ban_list?: PortalBan[]; strikes?: PortalStrike[];
+}
+export interface PortalTriggersPayload extends Envelope { triggers: PortalTrigger[] }
+export interface PortalActionResult extends Envelope { token?: string; note?: string }

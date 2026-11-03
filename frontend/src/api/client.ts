@@ -265,6 +265,11 @@ export const api = {
     post<{ ok: boolean; request_id: string; status: string; was: string }>("/api/trigger-reprocess", {
       request_id,
     }),
+  portalTriggers: (signal?: AbortSignal) =>
+    get<import("./types").PortalTriggersPayload>("/api/portal-triggers", {}, signal),
+  /** Revoke or regenerate a portal token, ban or unban an email / IP. */
+  portalAction: (body: { id: string; action: "regenerate" | "revoke" | "ban" | "unban"; email?: string; ip?: string; reason?: string }) =>
+    post<import("./types").PortalActionResult>("/api/portal-action", body),
   /** Stop a queued or running task; a running session is killed. */
   cancelTask: (request_id: string) =>
     post<{ ok: boolean; request_id: string; status: string; was: string }>("/api/trigger-cancel", {

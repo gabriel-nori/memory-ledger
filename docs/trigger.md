@@ -537,6 +537,69 @@ trigger still loads, since JSON is YAML. Each run is a row in
 `custom_trigger_run` (status, attempts, events found, tasks created, the
 per-block log); `custom_trigger_state` keeps the last one per trigger.
 
+## Portal triggers
+
+A chat for the visitors of the owner's site. The portal's backend is the only
+client: the visitor never reaches the brain. The contract with the portal is
+[`docs/portal-contract.md`](portal-contract.md); this is the ledger's half.
+
+One file per trigger, `<home>/triggers/<id>.yaml`, saved switched off:
+
+```yaml
+id: portal-chat
+type: portal
+enabled: false
+port: 8801                 # 8801-8899, one per trigger, unique
+bind_ips: ["*"]            # or IPs and CIDRs, checked against the TCP peer
+rate: {daily_budget_usd: 5, tz: America/Sao_Paulo}   # resets at local midnight
+attachments: {max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}
+jokes: {every_n_min: 6, every_n_max: 12}
+skill: portal-respond
+```
+
+`portal.enabled` in `trigger.json` (with `enabled`) lets the server run them;
+it also holds `portal.clamav` (`socket`, or `host` and `port`, else the
+`clamscan` binary) and `portal.ollama` (`url`, `model`). With both on, the
+server opens one listener per enabled file (`_portal_loop`, every 15 s, so an
+edit counts without a restart). TLS and the port forwarding are outside.
+
+```bash
+python3 scripts/trigger.py portal new portal-chat         # file + token, shown once
+python3 scripts/trigger.py portal regenerate portal-chat  # the old token dies at once
+python3 scripts/trigger.py portal revoke portal-chat      # every call is 401 until regenerate
+python3 scripts/trigger.py portal enable|disable|validate|show|list [<id>]
+python3 scripts/trigger.py portal ban|unban|bans portal-chat --email x@y.z --ip 1.2.3.4
+python3 scripts/trigger.py portal calls|appeals|purge-calls portal-chat
+```
+
+- **Token.** `ptl_...`, kept as sha256 only. No expiry; revoking is manual.
+- **API.** `POST /v1/chats`, `POST|GET /v1/chats/{id}/messages`,
+  `POST /v1/chats/{id}/appeal`, `POST /v1/attachments`, `GET /v1/health`; JSON,
+  `Authorization: Bearer`, errors `{"error": {"code", "message"}}`. Checks run in
+  order: peer in `bind_ips` (403 `ip_not_allowed`), token (401), then the route.
+  A text is at most 4000 characters; a message carries at most 5 attachments,
+  all of its own chat (404 otherwise). `GET messages?after=<id>` returns every
+  later message with its current status.
+- **Messages are tasks.** Each one is a request on `portal:<id>`, shown in the
+  Tasks tab; the session (skill `portal-respond`) answers with
+  `trigger.py portal reply`. The prompt fences the visitor's text, history and
+  files as data; the skill reads only nodes with `props.public = true`
+  (`portal public`).
+- **Attachments** are checked for size, type (magic bytes too) and scanned by
+  ClamAV; an infected file is 422 and never stored, a scanner that is down is 503.
+- **Quota.** At the daily budget, or after a session hit the plan's limit,
+  messages get `429 quota_exhausted` with `error.resume_at`; the visitor also gets
+  the "back at HH:MM" line as an assistant message. For a session limit,
+  `resume_at` is read from the session's output by ollama and falls back to the
+  next local midnight.
+- **Ban.** Three `forbidden` strikes on one email ban the email and the visitor's
+  address (`X-Client-IP`, kept salted and hashed); a match on either blocks.
+  Permanent until `unban`. A banned chat shows `chat_status: banned` and a notice;
+  `POST .../appeal` makes a task for the owner.
+- **Call log.** Every call and its response (headers minus `Authorization`) is in
+  `portal_call` (`portal calls`), and on the message's task as a `portal-call`
+  action. No tokens, headers or addresses reach `trigger.log`.
+
 ## Loops
 
 The brain answers as you, and on Jira the mention *is* your own account. So its

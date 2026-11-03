@@ -24,6 +24,7 @@ dependency — the Slack Socket Mode websocket — lives in the server
     python3 scripts/trigger.py poll-jira
     python3 scripts/trigger.py poll-github
     python3 scripts/trigger.py custom list|show|validate|dry-run|run|enable|disable|runs [<id>]
+    python3 scripts/trigger.py portal new|list|show|validate|enable|disable|regenerate|revoke|ban|unban|bans|calls|appeals [<id>]
 """
 
 from __future__ import annotations
@@ -198,6 +199,14 @@ DEFAULTS = {
         "enabled": False,
         "secrets": {},
         "max_events_per_run": 20,
+    },
+    # Portal triggers (scripts/portal_trigger.py): a chat for the visitors of
+    # the owner's site, one listener per trigger file. The trigger's own
+    # settings are in <home>/triggers/<id>.yaml; this is what they share.
+    "portal": {
+        "enabled": False,
+        "clamav": {"socket": "", "host": "", "port": 3310, "bin": "clamscan"},
+        "ollama": {"url": "http://127.0.0.1:11434", "model": "llama3.2"},
     },
 }
 
@@ -1806,6 +1815,9 @@ def variables_catalogue() -> list:
 
 # ---------------------------------------------------------------- dispatch
 def build_prompt(req: dict, cfg: dict) -> str:
+    if req["source"].startswith("portal:"):
+        import portal_trigger          # imported here: it imports this module
+        return portal_trigger.build_prompt(req, cfg)
     meta = req.get("meta") or {}
     where = meta.get("where") or req["scope"]
     # custom:<id> is one source per trigger; the prompt only needs to know it
@@ -4156,7 +4168,8 @@ def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
     if action == "list":
         con = ct.db()
         return {"ok": True, "dir": str(ct.triggers_dir()),
-                "triggers": [ct.summary(t, con) for t in ct.list_ids()]}
+                "triggers": [ct.summary(t, con) for t in ct.list_ids()
+                             if not ct.is_portal_file(t)]}
     if not tid:
         return {"ok": False, "error": f"custom {action} needs a trigger id"}
     cfg = load_config()
@@ -4193,6 +4206,12 @@ def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
     if action == "runs":
         return {"ok": True, "id": tid, "runs": ct.runs(ct.db(), tid, limit)}
     return {"ok": False, "error": f"no custom action {action}"}
+
+
+def portal_cli(action: str, tid: str = "", **kw) -> dict:
+    """`trigger.py portal <action> [<id>]`. Imported here for the same reason."""
+    import portal_trigger as pt
+    return pt.cli(action, tid, **kw)
 
 
 def out(obj) -> None:
@@ -4261,6 +4280,24 @@ def main(argv=None) -> int:
     p.add_argument("--request", required=True)
     sub.add_parser("poll-jira", help="one Jira pass; runs what it finds, in this process")
     sub.add_parser("poll-github", help="one GitHub pass; runs what it finds, in this process")
+    p = sub.add_parser("portal", help="portal triggers, <home>/triggers/<id>.yaml with type: "
+                                      "portal (scripts/portal_trigger.py)")
+    p.add_argument("action", choices=("new", "list", "show", "validate", "enable", "disable",
+                                      "regenerate", "revoke", "ban", "unban", "bans", "calls",
+                                      "appeals", "purge-calls", "reply", "public"))
+    p.add_argument("id", nargs="?", default="")
+    p.add_argument("--request", default=os.environ.get("MEMORY_LEDGER_REQUEST_ID", ""))
+    p.add_argument("--class", dest="cls", default="")
+    p.add_argument("--lang", default="")
+    p.add_argument("--text", default="", help="the reply; - reads stdin")
+    p.add_argument("--joke", action="store_true")
+    p.add_argument("--email", default="")
+    p.add_argument("--ip", default="")
+    p.add_argument("--reason", default="")
+    p.add_argument("--port", type=int, default=0)
+    p.add_argument("--query", default="")
+    p.add_argument("--chat", default="")
+    p.add_argument("--limit", type=int, default=50)
     p = sub.add_parser("custom", help="custom triggers, <home>/triggers/<id>.yaml "
                                       "(scripts/custom_trigger.py)")
     p.add_argument("action", choices=CUSTOM_ACTIONS)
@@ -4360,6 +4397,13 @@ def main(argv=None) -> int:
         res = run_request(args.request)
         out(res)
         return 0 if res.get("ok") else 1
+    elif args.cmd == "portal":
+        res = portal_cli(args.action, args.id, request=args.request, cls=args.cls, lang=args.lang,
+                         text=args.text, joke=args.joke, email=args.email, ip=args.ip,
+                         reason=args.reason, port=args.port, query=args.query, chat=args.chat,
+                         limit=args.limit)
+        out(res)
+        return 0 if res.get("ok", True) and not res.get("errors") else 1
     elif args.cmd == "custom":
         res = custom_cli(args.action, args.id, args.limit)
         out(res)

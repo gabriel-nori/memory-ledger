@@ -24,6 +24,7 @@ import documents
 import brain_query
 import custom_trigger
 import graph
+import portal_trigger
 import trigger
 import usage_ingest
 import usage_report
@@ -347,8 +348,17 @@ def custom_triggers():
     return {"ok": True, "dir": str(custom_trigger.triggers_dir()),
             "active": trigger.source_enabled(cfg, "custom"),
             "secrets": sorted(custom_trigger.secret_values(cfg)),
-            "triggers": [custom_trigger.summary(t, con) for t in custom_trigger.list_ids()],
+            "triggers": [custom_trigger.summary(t, con) for t in custom_trigger.list_ids()
+                         if not custom_trigger.is_portal_file(t)],
             "template": custom_trigger.template()}
+
+
+@router.get("/portal-triggers", tags=["trigger"],
+            summary="Portal triggers: token state, quota, active bans and strikes",
+            description="One row per portal trigger file. The token itself is never returned.")
+def portal_triggers():
+    con = portal_trigger.db()
+    return {"ok": True, "triggers": [portal_trigger.summary(t, con) for t in portal_trigger.list_ids()]}
 
 
 @router.get("/custom-trigger", tags=["trigger"],

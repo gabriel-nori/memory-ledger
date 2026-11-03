@@ -300,6 +300,14 @@ class TriggerReprocess(Body):
     request_id: Text = T("The blocked or failed request to run again.")
 
 
+class PortalAction(Body):
+    id: Text = T("The portal trigger's id.")
+    action: Text = T("`regenerate`, `revoke`, `ban` or `unban`.")
+    email: Text = T("For ban / unban: the visitor's email.")
+    ip: Text = T("For ban / unban: the visitor's IP.")
+    reason: Text = T("For ban: why.")
+
+
 class TriggerCancel(Body):
     request_id: Text = T("The queued or running request to stop.")
 

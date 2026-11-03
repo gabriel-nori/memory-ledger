@@ -25,7 +25,7 @@ DEFAULTS: dict[str, Any] = {
     "never": "",                    # what never to delegate, free text, same
     "blocked_realms": ["personal"],  # a brief naming a node of these realms is refused
     "max_per_turn": 3,
-    "timeout_s": 600,
+    "timeout_s": 7200,
 }
 TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{5,}")
 
@@ -40,7 +40,7 @@ def clean(raw: Any) -> dict[str, Any]:
             out[key] = [str(x).strip()[:80] for x in raw[key] if str(x).strip()][:20]
     for key in ("rules", "never"):
         out[key] = str(raw.get(key) or "").strip()[:4000]
-    for key, lo, hi in (("max_per_turn", 1, 10), ("timeout_s", 30, 3600)):
+    for key, lo, hi in (("max_per_turn", 1, 10), ("timeout_s", 30, 7200)):
         try:
             out[key] = max(lo, min(hi, int(raw.get(key, DEFAULTS[key]))))
         except (TypeError, ValueError):
