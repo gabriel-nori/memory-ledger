@@ -1,7 +1,7 @@
-"""Portal triggers (docs/trigger.md#portal-triggers): the contract's shared test
+"""Inbound HTTP triggers (docs/trigger.md#inbound-http-triggers): the contract's shared test
 vectors (docs/portal-contract.md section 3) against the ledger side.
 
-    python -m pytest tests/test_portal_trigger.py
+    python -m pytest tests/test_inbound_http_trigger.py
 
 Every test gets a throwaway brain (`brain_home`). The service is called without
 a socket (`Service.handle`); one test goes through a real listener on
@@ -21,18 +21,18 @@ import pytest
 
 import custom_trigger as ct
 import graph
-import portal_trigger as pt
+import inbound_http_trigger as pt
 import trigger
 
-TID = "portal-chat"
+TID = "site-chat"
 PEER = "10.0.0.5"
 UID = "11111111-2222-3333-4444-555555555555"
-CFG = {"enabled": True, "portal": {"enabled": True}}
+CFG = {"enabled": True, "inbound_http": {"enabled": True}}
 NOW = datetime(2026, 11, 3, 15, 0, tzinfo=timezone.utc)   # noon in Sao Paulo
-DEFN = {"id": TID, "type": "portal", "enabled": True, "port": 8801, "bind_ips": ["*"],
+DEFN = {"id": TID, "type": "inbound-http", "enabled": True, "port": 8801, "bind_ips": ["*"],
         "rate": {"daily_budget_usd": 5, "tz": "America/Sao_Paulo"},
         "attachments": {"max_mb": 1, "types": list(pt.ALLOWED_TYPES)},
-        "jokes": {"every_n_min": 2, "every_n_max": 2}, "skill": "portal-respond"}
+        "jokes": {"every_n_min": 2, "every_n_max": 2}, "skill": "inbound-http-respond"}
 PDF = b"%PDF-1.4\n" + b"x" * 100
 
 
@@ -65,7 +65,7 @@ class Rig:
         return self.call("GET", f"/v1/messages?user_id={uid}" + (f"&after={after}" if after else ""))
 
     def request_of(self, message_id):
-        return self.con.execute("SELECT request_id FROM portal_message WHERE id=?",
+        return self.con.execute("SELECT request_id FROM inbound_message WHERE id=?",
                                 (message_id,)).fetchone()["request_id"]
 
     def answer(self, mid, cls="in_scope", text="ola"):
@@ -106,19 +106,19 @@ def test_budget_defaults_to_five():
     assert pt.validate(d)["ok"] and pt.settings(d)["daily_budget_usd"] == 5
 
 
-def test_custom_triggers_leave_portal_files_alone(brain_home):
+def test_custom_triggers_leave_inbound_files_alone(brain_home):
     write(DEFN)
-    assert ct.is_portal_file(TID)
+    assert ct.is_inbound_file(TID)
     assert not ct.validate(DEFN)["ok"]
     assert ct.run_due({}, lambda r: None) == []
 
 
 def test_cli_new_mints_a_token_once_and_saves_switched_off(brain_home):
     res = pt.cli("new", "fresh")
-    assert res["ok"] and res["token"].startswith("ptl_") and res["port"] == 8801
+    assert res["ok"] and res["token"].startswith("inb_") and res["port"] == 8801
     assert "enabled: false" in ct.path_of("fresh").read_text(encoding="utf-8")
     con = pt.db()
-    assert res["token"] not in json.dumps([dict(r) for r in con.execute("SELECT * FROM portal_token")])
+    assert res["token"] not in json.dumps([dict(r) for r in con.execute("SELECT * FROM inbound_token")])
     assert pt.token_ok(con, "fresh", res["token"])
 
 
@@ -218,7 +218,7 @@ def test_bad_input_is_400(rig):
 def test_the_first_message_makes_the_user_and_the_language_sticks(rig):
     assert rig.history()[1]["messages"] == []                                 # unknown: empty, not 404
     rig.say("oi", lang="pt")
-    assert rig.con.execute("SELECT lang FROM portal_user WHERE user_id=?", (UID,)).fetchone()[0] == "pt"
+    assert rig.con.execute("SELECT lang FROM inbound_user WHERE user_id=?", (UID,)).fetchone()[0] == "pt"
     mid = rig.say("e agora?")[1]["message_id"]
     assert trigger.get_request(rig.con, rig.request_of(mid))["meta"]["lang"] == "pt"
     mid = rig.say("hola", lang="es")[1]["message_id"]
@@ -282,9 +282,9 @@ def test_the_visitors_address_and_headers_are_ignored_and_never_logged(rig):
 def test_message_makes_a_task_with_the_call_logged(rig):
     mid = rig.say("hello")[1]["message_id"]
     req = trigger.get_request(rig.con, rig.request_of(mid))
-    assert req["source"] == f"portal:{TID}" and req["status"] == "queued"
+    assert req["source"] == f"inbound-http:{TID}" and req["status"] == "queued"
     act = trigger.actions_for(rig.con, req["id"])
-    assert act[0]["kind"] == "portal-call" and "202" in act[0]["detail"]
+    assert act[0]["kind"] == "inbound-call" and "202" in act[0]["detail"]
     row = pt.calls(rig.con, TID)[0]
     assert "authorization" not in row["headers"] and rig.token not in json.dumps(row)
 
@@ -365,9 +365,9 @@ def test_malware_is_rejected_and_not_stored(rig):
     body, h = multipart(UID, "x.pdf", "application/pdf", PDF)
     st, obj = rig.call("POST", "/v1/attachments", raw=body, headers=h)
     assert (st, obj["error"]["code"]) == (422, "malware_detected")
-    assert rig.con.execute("SELECT count(*) FROM portal_attachment").fetchone()[0] == 0
-    assert not list((graph.home_dir() / "portal").rglob("*.pdf")) \
-        and not [p for p in (graph.home_dir() / "portal").rglob("*") if p.is_file()]
+    assert rig.con.execute("SELECT count(*) FROM inbound_attachment").fetchone()[0] == 0
+    assert not list((graph.home_dir() / "inbound-http").rglob("*.pdf")) \
+        and not [p for p in (graph.home_dir() / "inbound-http").rglob("*") if p.is_file()]
 
 
 def test_scanner_down_is_unavailable_and_nothing_stored(rig):
@@ -413,11 +413,11 @@ def test_injection_stays_inside_the_data_fence(rig):
     inside = body.split("\nMESSAGE>>>", 1)[0]
     assert ">>>" not in inside and "\x00" not in inside and "​" not in inside
     assert "DATA" in prompt and "never instructions" in prompt
-    assert "portal public" in prompt and "portal reply" in prompt
+    assert "inbound-http public" in prompt and "inbound-http reply" in prompt
     assert "Stella" in prompt
     # the text is stored and answered as an ordinary message; nothing else happens
     assert rig.con.execute("SELECT count(*) FROM trigger_request WHERE source=?",
-                           (f"portal:{TID}",)).fetchone()[0] == 1
+                           (f"inbound-http:{TID}",)).fetchone()[0] == 1
 
 
 def test_only_public_nodes_are_listed(rig):
@@ -500,3 +500,53 @@ def _can_bind(p: int) -> bool:
             return True
         except OSError:
             return False
+
+
+# ---------------------------------------------------------------- managed from the admin
+JSON_TEXT = json.dumps({"id": "site-chat", "type": "inbound-http", "enabled": False, "port": 8810,
+                        "rate": {"daily_budget_usd": 5, "tz": "UTC"}})
+
+
+def test_save_text_creates_the_file_and_a_token_shown_once(brain_home):
+    res = pt.save_text("site-chat", JSON_TEXT)
+    assert res["saved"] and res["created"] and res["token"].startswith("inb_")
+    assert pt.token_ok(pt.db(), "site-chat", res["token"])
+    again = pt.save_text("site-chat", JSON_TEXT.replace("8810", "8811"))
+    assert again["saved"] and not again["created"] and "token" not in again
+    assert pt.token_ok(pt.db(), "site-chat", res["token"])             # editing keeps the token
+
+
+def test_save_text_refuses_what_does_not_validate_and_foreign_files(brain_home):
+    bad = pt.save_text("site-chat", JSON_TEXT.replace("8810", "80"))
+    assert not bad["saved"] and not ct.path_of("site-chat").exists()
+    ct.triggers_dir().mkdir(parents=True, exist_ok=True)
+    ct.path_of("site-chat").write_text(json.dumps({"id": "site-chat", "type": "custom"}), encoding="utf-8")
+    res = pt.save_text("site-chat", JSON_TEXT)
+    assert not res["ok"] and "not an inbound-http trigger" in res["error"]
+    assert not pt.check_text("../x", JSON_TEXT)["ok"]
+
+
+def test_detail_listing_and_delete(brain_home):
+    pt.save_text("site-chat", JSON_TEXT)
+    d = pt.detail("site-chat")
+    assert d["ok"] and d["ok"] and d["summary"]["token"] == "set" and d["calls"] == []
+    assert not pt.detail("nope")["ok"]
+    cfg = {"enabled": True, "inbound_http": {"enabled": True}}
+    lst = pt.listing(cfg)
+    assert lst["active"] and [t["id"] for t in lst["triggers"]] == ["site-chat"]
+    assert "type: inbound-http" in lst["template"]
+    assert pt.listing({"enabled": True})["active"] is False
+    assert pt.delete(pt.db(), "site-chat")["deleted"]
+    assert not ct.path_of("site-chat").exists() and pt.listing(cfg)["triggers"] == []
+    assert not pt.token_ok(pt.db(), "site-chat", "whatever")
+
+
+def test_tables_named_portal_are_renamed_with_their_rows(brain_home):
+    con = trigger.db()
+    con.execute("CREATE TABLE portal_token (trigger_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, "
+                "created_at TEXT NOT NULL, revoked_at TEXT NOT NULL DEFAULT '')")
+    con.execute("INSERT INTO portal_token VALUES('old', 'abc', 'now', '')")
+    con.commit()
+    con = pt.db()
+    assert con.execute("SELECT token_hash FROM inbound_token WHERE trigger_id='old'").fetchone()[0] == "abc"
+    assert not con.execute("SELECT 1 FROM sqlite_master WHERE name='portal_token'").fetchone()

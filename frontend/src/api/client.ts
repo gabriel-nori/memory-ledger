@@ -265,11 +265,18 @@ export const api = {
     post<{ ok: boolean; request_id: string; status: string; was: string }>("/api/trigger-reprocess", {
       request_id,
     }),
-  portalTriggers: (signal?: AbortSignal) =>
-    get<import("./types").PortalTriggersPayload>("/api/portal-triggers", {}, signal),
-  /** Revoke or regenerate a portal token. */
-  portalAction: (body: { id: string; action: "regenerate" | "revoke" }) =>
-    post<import("./types").PortalActionResult>("/api/portal-action", body),
+  inboundHttpTriggers: (signal?: AbortSignal) =>
+    get<import("./types").InboundHttpTriggersPayload>("/api/inbound-http-triggers", undefined, signal),
+  inboundHttpTrigger: (id: string, signal?: AbortSignal) =>
+    get<import("./types").InboundHttpDetail>("/api/inbound-http-trigger", { id }, signal),
+  /** Validate (check_only) or save an inbound HTTP trigger's YAML. A new one answers its token, once. */
+  saveInboundHttpTrigger: (id: string, text: string, checkOnly = false) =>
+    post<import("./types").InboundHttpVerdict>("/api/inbound-http-trigger", { id, text, check_only: checkOnly }),
+  enableInboundHttpTrigger: (id: string, enabled: boolean) =>
+    post("/api/inbound-http-trigger-enable", { id, enabled }),
+  /** Regenerate or revoke the token, or delete the trigger. A new token is shown once. */
+  inboundHttpAction: (body: { id: string; action: "regenerate" | "revoke" | "delete" }) =>
+    post<import("./types").InboundHttpActionResult>("/api/inbound-http-action", body),
   /** Stop a queued or running task; a running session is killed. */
   cancelTask: (request_id: string) =>
     post<{ ok: boolean; request_id: string; status: string; was: string }>("/api/trigger-cancel", {

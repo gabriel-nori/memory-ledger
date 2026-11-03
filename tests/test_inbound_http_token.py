@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-import portal_trigger as pt
+import inbound_http_trigger as pt
 
 
 TRIGGER_ID = "trigger-1"
@@ -23,7 +23,7 @@ def con():
     connection.row_factory = sqlite3.Row
     connection.executescript(
         """
-        CREATE TABLE portal_token (
+        CREATE TABLE inbound_token (
             trigger_id TEXT PRIMARY KEY,
             token_hash TEXT,
             created_at TEXT,
@@ -39,11 +39,11 @@ def test_mint_token_returns_prefixed_value_and_stores_only_hash(con):
     token = pt.mint_token(con, TRIGGER_ID)
 
     row = con.execute(
-        "SELECT token_hash, revoked_at FROM portal_token WHERE trigger_id=?",
+        "SELECT token_hash, revoked_at FROM inbound_token WHERE trigger_id=?",
         (TRIGGER_ID,),
     ).fetchone()
 
-    assert token.startswith("ptl_")
+    assert token.startswith("inb_")
     assert row["token_hash"] == hashlib.sha256(token.encode("utf-8")).hexdigest()
     assert HASH_PATTERN.fullmatch(row["token_hash"])
     assert token != row["token_hash"]
@@ -57,12 +57,12 @@ def test_second_mint_invalidates_first_and_clears_revoked(con):
 
     second_token = pt.mint_token(con, TRIGGER_ID)
 
-    assert second_token.startswith("ptl_")
+    assert second_token.startswith("inb_")
     assert second_token != first_token
     assert pt.token_ok(con, TRIGGER_ID, first_token) is False
     assert pt.token_ok(con, TRIGGER_ID, second_token) is True
     row = con.execute(
-        "SELECT token_hash, revoked_at FROM portal_token WHERE trigger_id=?",
+        "SELECT token_hash, revoked_at FROM inbound_token WHERE trigger_id=?",
         (TRIGGER_ID,),
     ).fetchone()
     assert row["token_hash"] == hashlib.sha256(second_token.encode("utf-8")).hexdigest()

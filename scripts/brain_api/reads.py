@@ -24,7 +24,7 @@ import documents
 import brain_query
 import custom_trigger
 import graph
-import portal_trigger
+import inbound_http_trigger
 import trigger
 import usage_ingest
 import usage_report
@@ -349,16 +349,25 @@ def custom_triggers():
             "active": trigger.source_enabled(cfg, "custom"),
             "secrets": sorted(custom_trigger.secret_values(cfg)),
             "triggers": [custom_trigger.summary(t, con) for t in custom_trigger.list_ids()
-                         if not custom_trigger.is_portal_file(t)],
+                         if not custom_trigger.is_inbound_file(t)],
             "template": custom_trigger.template()}
 
 
-@router.get("/portal-triggers", tags=["trigger"],
-            summary="Portal triggers: token state, allowed IPs, throttle and quota",
-            description="One row per portal trigger file. The token itself is never returned.")
-def portal_triggers():
-    con = portal_trigger.db()
-    return {"ok": True, "triggers": [portal_trigger.summary(t, con) for t in portal_trigger.list_ids()]}
+@router.get("/inbound-http-triggers", tags=["trigger"],
+            summary="Inbound HTTP triggers: every way in, with token state, IPs, port, throttle and quota",
+            description="One row per `type: inbound-http` file in `<home>/triggers`, whether the "
+                        "server runs them here (`active`: the master switch and "
+                        "`inbound_http.enabled`) and a starting template. The token itself is "
+                        "never returned.")
+def inbound_triggers():
+    return inbound_http_trigger.listing()
+
+
+@router.get("/inbound-http-trigger", tags=["trigger"],
+            summary="One inbound HTTP trigger: its file, verdict, summary and newest calls")
+def inbound_trigger_detail(id: str = Query("", description="The trigger's id."),
+                           limit: int = Query(20, description="How many calls, newest first.")):
+    return inbound_http_trigger.detail(id, limit=max(1, min(100, limit)))
 
 
 @router.get("/custom-trigger", tags=["trigger"],

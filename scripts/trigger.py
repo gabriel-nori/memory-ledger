@@ -24,7 +24,7 @@ dependency — the Slack Socket Mode websocket — lives in the server
     python3 scripts/trigger.py poll-jira
     python3 scripts/trigger.py poll-github
     python3 scripts/trigger.py custom list|show|validate|dry-run|run|enable|disable|runs [<id>]
-    python3 scripts/trigger.py portal new|list|show|validate|enable|disable|regenerate|revoke|calls [<id>]
+    python3 scripts/trigger.py inbound-http new|list|show|validate|enable|disable|regenerate|revoke|calls|delete [<id>]
 """
 
 from __future__ import annotations
@@ -200,10 +200,10 @@ DEFAULTS = {
         "secrets": {},
         "max_events_per_run": 20,
     },
-    # Portal triggers (scripts/portal_trigger.py): a chat for the visitors of
-    # the owner's site, one listener per trigger file. The trigger's own
+    # Inbound HTTP triggers (scripts/inbound_http_trigger.py): the brain's HTTP door for the
+    # owner's portal, one listener per trigger file. The trigger's own
     # settings are in <home>/triggers/<id>.yaml; this is what they share.
-    "portal": {
+    "inbound_http": {
         "enabled": False,
         "clamav": {"socket": "", "host": "", "port": 3310, "bin": "clamscan"},
         "ollama": {"url": "http://127.0.0.1:11434", "model": "llama3.2"},
@@ -1815,9 +1815,9 @@ def variables_catalogue() -> list:
 
 # ---------------------------------------------------------------- dispatch
 def build_prompt(req: dict, cfg: dict) -> str:
-    if req["source"].startswith("portal:"):
-        import portal_trigger          # imported here: it imports this module
-        return portal_trigger.build_prompt(req, cfg)
+    if req["source"].startswith("inbound-http:"):
+        import inbound_http_trigger          # imported here: it imports this module
+        return inbound_http_trigger.build_prompt(req, cfg)
     meta = req.get("meta") or {}
     where = meta.get("where") or req["scope"]
     # custom:<id> is one source per trigger; the prompt only needs to know it
@@ -3540,7 +3540,7 @@ _INT_RANGES = {
 _BOOLS = {(None, "enabled"), (None, "translate_notices"), (None, "refuse_without_model"),
           ("claude", "strict_mcp_config"), ("slack", "enabled"), ("slack", "dms"), ("slack", "dms_open"),
           ("jira", "enabled"), ("github", "enabled"), ("github", "refusal_notice"),
-          ("meeting", "enabled"), ("custom", "enabled")}
+          ("meeting", "enabled"), ("custom", "enabled"), ("inbound_http", "enabled")}
 _STRINGS = {(None, "signature"): 200,
             ("refusals", "not_enabled"): 500, ("refusals", "policy"): 500,
             ("refusals", "not_allowed"): 500, ("jira", "watch_jql"): 1000,
@@ -3607,6 +3607,8 @@ def config_summary(cfg: dict) -> dict:
                    # the names only: a value is never shown
                    "secrets": sorted((cfg.get("custom") or {}).get("secrets") or {}),
                    "active": source_enabled(cfg, "custom")},
+        "inbound_http": {"enabled": bool((cfg.get("inbound_http") or {}).get("enabled")),
+                         "active": source_enabled(cfg, "inbound_http")},
         "secrets": secrets_summary(cfg),
         "variables": variables_catalogue(),
         "actions": list(ACTIONS),
@@ -4169,7 +4171,7 @@ def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
         con = ct.db()
         return {"ok": True, "dir": str(ct.triggers_dir()),
                 "triggers": [ct.summary(t, con) for t in ct.list_ids()
-                             if not ct.is_portal_file(t)]}
+                             if not ct.is_inbound_file(t)]}
     if not tid:
         return {"ok": False, "error": f"custom {action} needs a trigger id"}
     cfg = load_config()
@@ -4208,9 +4210,9 @@ def custom_cli(action: str, tid: str, limit: int = 20) -> dict:
     return {"ok": False, "error": f"no custom action {action}"}
 
 
-def portal_cli(action: str, tid: str = "", **kw) -> dict:
-    """`trigger.py portal <action> [<id>]`. Imported here for the same reason."""
-    import portal_trigger as pt
+def inbound_cli(action: str, tid: str = "", **kw) -> dict:
+    """`trigger.py inbound-http <action> [<id>]`. Imported here for the same reason."""
+    import inbound_http_trigger as pt
     return pt.cli(action, tid, **kw)
 
 
@@ -4280,11 +4282,11 @@ def main(argv=None) -> int:
     p.add_argument("--request", required=True)
     sub.add_parser("poll-jira", help="one Jira pass; runs what it finds, in this process")
     sub.add_parser("poll-github", help="one GitHub pass; runs what it finds, in this process")
-    p = sub.add_parser("portal", help="portal triggers, <home>/triggers/<id>.yaml with type: "
-                                      "portal (scripts/portal_trigger.py)")
+    p = sub.add_parser("inbound-http", help="inbound HTTP triggers, <home>/triggers/<id>.yaml with type: "
+                                      "inbound-http (scripts/inbound_http_trigger.py)")
     p.add_argument("action", choices=("new", "list", "show", "validate", "enable", "disable",
-                                      "regenerate", "revoke", "calls", "purge-calls", "reply",
-                                      "public"))
+                                      "regenerate", "revoke", "calls", "purge-calls", "delete",
+                                      "reply", "public"))
     p.add_argument("id", nargs="?", default="")
     p.add_argument("--request", default=os.environ.get("MEMORY_LEDGER_REQUEST_ID", ""))
     p.add_argument("--class", dest="cls", default="")
@@ -4394,8 +4396,8 @@ def main(argv=None) -> int:
         res = run_request(args.request)
         out(res)
         return 0 if res.get("ok") else 1
-    elif args.cmd == "portal":
-        res = portal_cli(args.action, args.id, request=args.request, cls=args.cls, lang=args.lang,
+    elif args.cmd == "inbound-http":
+        res = inbound_cli(args.action, args.id, request=args.request, cls=args.cls, lang=args.lang,
                          text=args.text, joke=args.joke, port=args.port, query=args.query,
                          user=args.user, limit=args.limit)
         out(res)

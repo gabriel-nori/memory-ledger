@@ -765,6 +765,7 @@ export interface TriggerConfig {
   /** A refusal goes out as written through the source's API, or not at all: never a model call. */
   refuse_without_model: boolean;
   translate_notices: boolean;
+  inbound_http: { enabled: boolean; active: boolean };
   claude: {
     bin: string;
     notice_model: string;
@@ -1620,10 +1621,34 @@ export interface UpdateInfo extends Envelope {
   error: string;
 }
 
-export interface PortalTrigger {
+/** Inbound HTTP triggers (docs/trigger.md#inbound-http-triggers): the brain's HTTP door, one YAML file each. */
+export interface InboundHttpTrigger {
   id: string; ok: boolean; error?: string; enabled?: boolean; port?: number;
   token?: "set" | "revoked" | "none"; quota?: { available: boolean; resume_at?: string } | null;
   bind_ips?: string[] | null; per_minute?: number | null; users?: number;
 }
-export interface PortalTriggersPayload extends Envelope { triggers: PortalTrigger[] }
-export interface PortalActionResult extends Envelope { token?: string; note?: string }
+export interface InboundHttpTriggersPayload extends Envelope {
+  dir: string;
+  /** `inbound_http.enabled` in trigger.json. */
+  enabled: boolean;
+  /** The master switch. */
+  master: boolean;
+  /** Both: whether the server opens the listeners here. */
+  active: boolean;
+  port_range: [number, number];
+  triggers: InboundHttpTrigger[];
+  template: string;
+}
+export interface InboundHttpCall {
+  id: number; at: string; method: string; path: string; peer: string; status: number; user_id: string;
+}
+export interface InboundHttpDetail extends Envelope {
+  id: string; text: string; errors: string[]; warnings: string[];
+  summary: InboundHttpTrigger; calls: InboundHttpCall[];
+}
+export interface InboundHttpVerdict extends Envelope {
+  valid?: boolean; errors: string[]; warnings: string[]; saved?: boolean; created?: boolean;
+  /** Shown this once, on a new trigger. */
+  token?: string;
+}
+export interface InboundHttpActionResult extends Envelope { token?: string; note?: string }

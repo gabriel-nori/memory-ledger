@@ -130,10 +130,10 @@ def load(tid: str) -> tuple:
     return defn, ""
 
 
-def is_portal_file(tid: str) -> bool:
-    """A `type: portal` file shares the folder; portal_trigger.py owns it."""
+def is_inbound_file(tid: str) -> bool:
+    """A `type: inbound-http` file shares the folder; inbound_http_trigger.py owns it."""
     defn, err = load(tid)
-    return not err and defn.get("type") == "portal"
+    return not err and defn.get("type") == "inbound-http"
 
 
 def list_ids() -> list:
@@ -323,9 +323,9 @@ def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
     errors, warnings = [], []
     if not isinstance(defn, dict):
         return {"ok": False, "errors": ["a trigger is a mapping"], "warnings": []}
-    if defn.get("type") == "portal":
-        return {"ok": False, "errors": ["type: portal is not a custom trigger; use "
-                                        "`trigger.py portal ...`"], "warnings": []}
+    if defn.get("type") == "inbound-http":
+        return {"ok": False, "errors": ["type: inbound-http is not a custom trigger; use "
+                                        "`trigger.py inbound-http ...`"], "warnings": []}
     tid = defn.get("id")
     if not id_ok(tid):
         errors.append("id must be letters, digits, - and _")
@@ -688,7 +688,7 @@ def run_due(cfg: dict, dispatch, con=None) -> list:
         if err:
             _set_state(con, tid, last_status="invalid", last_error=err[:500])
             continue
-        if defn.get("type") == "portal" or defn.get("enabled") is not True:
+        if defn.get("type") == "inbound-http" or defn.get("enabled") is not True:
             continue
         lock = _lock_for(tid)
         if not lock.acquire(blocking=False):

@@ -134,11 +134,3 @@
   .ml-run__kv { grid-template-columns: 1fr; gap: 0; }
   .ml-act { grid-template-columns: max-content 1fr; }
 }
-
-.ml-portal { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
-.ml-portal__row {
-  border: 0.5px solid var(--border); border-radius: var(--radius-lg);
-  background: var(--panel-solid); padding: var(--space-2) var(--space-3);
-}
-.ml-portal__head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.ml-portal__actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); font-size: 12.5px; }

@@ -14,6 +14,8 @@ import {
   backupsFixture,
   captureFixture,
   customTriggerDetailFixture,
+  inboundHttpDetailFixture,
+  inboundHttpTriggersFixture,
   customTriggersFixture,
   consolidationPreviewFixture,
   doctorFixture,
@@ -52,7 +54,22 @@ function write(path: string, respond: (body: never) => Response = () => ok()) {
 }
 
 export const handlers = [
-  http.get("/api/portal-triggers", () => HttpResponse.json({ ok: true, triggers: [] })),
+  http.get("/api/inbound-http-triggers", () => HttpResponse.json(inboundHttpTriggersFixture)),
+  http.get("/api/inbound-http-trigger", () => HttpResponse.json(inboundHttpDetailFixture)),
+  write("/api/inbound-http-trigger", (body: { id?: string; check_only?: boolean; text?: string }) =>
+    body.check_only
+      ? ok({ id: body.id, valid: !(body.text ?? "").includes("port: 80\n"),
+             errors: (body.text ?? "").includes("port: 80\n") ? ["port must be a whole number from 8801 to 8899"] : [],
+             warnings: [] })
+      : ok({ id: body.id, saved: true, created: body.id !== "site-chat", errors: [], warnings: [],
+             ...(body.id !== "site-chat" ? { token: "inb_shown-once" } : {}) }),
+  ),
+  write("/api/inbound-http-trigger-enable", (body: { id?: string; enabled?: boolean }) =>
+    ok({ id: body.id, enabled: body.enabled }),
+  ),
+  write("/api/inbound-http-action", (body: { id?: string; action?: string }) =>
+    ok({ id: body.id, ...(body.action === "regenerate" ? { token: "inb_new-token" } : {}) }),
+  ),
   http.get("/api/meta", () => HttpResponse.json(metaFixture)),
   http.get("/api/graph", () => HttpResponse.json(graphFixture)),
   http.get("/api/views", () =>

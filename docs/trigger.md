@@ -537,9 +537,9 @@ trigger still loads, since JSON is YAML. Each run is a row in
 `custom_trigger_run` (status, attempts, events found, tasks created, the
 per-block log); `custom_trigger_state` keeps the last one per trigger.
 
-## Portal triggers
+## Inbound HTTP triggers
 
-The HTTP door of the brain for the owner's site. The portal's backend is the
+The HTTP door of the brain. For the owner's site, the portal's backend is the
 only client: the visitor never reaches the brain. The brain takes a message, an
 attachment and the visitor's `user_id`, and gives back the answer with the
 skill's verdict. Everything about the visitor (bans, strikes, appeals, limits
@@ -550,8 +550,8 @@ One file per way in, `<home>/triggers/<id>.yaml`, saved switched off. A second
 way in (another token, port or set of IPs) is a second file:
 
 ```yaml
-id: portal-chat
-type: portal
+id: site-chat
+type: inbound-http
 enabled: false
 port: 8801                 # 8801-8899, one per trigger, unique
 bind_ips: ["*"]            # or IPs and CIDRs, checked against the TCP peer
@@ -559,24 +559,31 @@ throttle: {per_minute: 300}   # calls a minute on this way in
 rate: {daily_budget_usd: 5, tz: America/Sao_Paulo}   # resets at local midnight
 attachments: {max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}
 jokes: {every_n_min: 6, every_n_max: 12}
-skill: portal-respond
+skill: inbound-http-respond
 ```
 
-`portal.enabled` in `trigger.json` (with `enabled`) lets the server run them;
-it also holds `portal.clamav` (`socket`, or `host` and `port`, else the
-`clamscan` binary) and `portal.ollama` (`url`, `model`). With both on, the
-server opens one listener per enabled file (`_portal_loop`, every 15 s, so an
+`inbound_http.enabled` in `trigger.json` (with `enabled`) lets the server run
+them; it also holds `inbound_http.clamav` (`socket`, or `host` and `port`, else
+the `clamscan` binary) and `inbound_http.ollama` (`url`, `model`). With both on, the
+server opens one listener per enabled file (`_inbound_loop`, every 15 s, so an
 edit counts without a restart). TLS and the port forwarding are outside.
 
 ```bash
-python3 scripts/trigger.py portal new portal-chat         # file + token, shown once
-python3 scripts/trigger.py portal regenerate portal-chat  # the old token dies at once
-python3 scripts/trigger.py portal revoke portal-chat      # every call is 401 until regenerate
-python3 scripts/trigger.py portal enable|disable|validate|show|list [<id>]
-python3 scripts/trigger.py portal calls|purge-calls portal-chat [--user U]
+python3 scripts/trigger.py inbound-http new site-chat           # file + token, shown once
+python3 scripts/trigger.py inbound-http regenerate site-chat    # the old token dies at once
+python3 scripts/trigger.py inbound-http revoke site-chat        # every call is 401 until regenerate
+python3 scripts/trigger.py inbound-http enable|disable|validate|show|list [<id>]
+python3 scripts/trigger.py inbound-http calls|purge-calls|delete site-chat [--user U]
 ```
 
-- **Token.** `ptl_...`, kept as sha256 only. No expiry; revoking is manual.
+- **Settings.** The same things are in Settings, in the *Inbound HTTP* card:
+  the switch that opens the listeners (`inbound_http.enabled`), each way in with
+  its port, IPs, throttle and token state, on/off, the file as an editor (validate,
+  save; a port another way in has is refused), regenerate or revoke the token,
+  delete, and the newest calls. A token is shown once, there, and never read back.
+  The routes are `/api/inbound-http-triggers`, `-trigger`, `-trigger-enable` and
+  `-action`.
+- **Token.** `inb_...`, kept as sha256 only. No expiry; revoking is manual.
 - **API.** `POST|GET /v1/messages`, `POST /v1/attachments`, `GET /v1/health`;
   JSON, `Authorization: Bearer`, errors `{"error": {"code", "message"}}`. The
   visitor is the `user_id` the portal minted (8-128 of `[A-Za-z0-9_-]`), made on
@@ -589,11 +596,11 @@ python3 scripts/trigger.py portal calls|purge-calls portal-chat [--user U]
   `recruiter`, `forbidden` or `abuse`.
 - **Throttle.** `throttle.per_minute` calls a minute on the trigger, counted in
   memory. A peer that sends wrong tokens is held to 20 a minute.
-- **Messages are tasks.** Each one is a request on `portal:<id>`, shown in the
-  Tasks tab; the session (skill `portal-respond`) answers with
-  `trigger.py portal reply`. The prompt fences the visitor's text, history and
+- **Messages are tasks.** Each one is a request on `inbound-http:<id>`, shown in the
+  Tasks tab; the session (skill `inbound-http-respond`) answers with
+  `trigger.py inbound-http reply`. The prompt fences the visitor's text, history and
   files as data; the skill reads only nodes with `props.public = true`
-  (`portal public`).
+  (`inbound-http public`).
 - **Attachments** are checked for size, type (magic bytes too) and scanned by
   ClamAV; an infected file is 422 and never stored, a scanner that is down is 503.
 - **Quota.** At the daily budget, or after a session hit the plan's limit,
@@ -604,7 +611,7 @@ python3 scripts/trigger.py portal calls|purge-calls portal-chat [--user U]
 - **Verdict, not ban.** The skill classifies each message and says so; it keeps
   no count and bans nobody. The portal reads `verdict: forbidden` and decides.
 - **Call log.** Every call and its response (headers minus `Authorization`) is in
-  `portal_call` (`portal calls`), and on the message's task as a `portal-call`
+  `inbound_call` (`inbound-http calls`), and on the message's task as a `inbound-call`
   action. No tokens, headers or addresses reach `trigger.log`.
 
 ## Loops

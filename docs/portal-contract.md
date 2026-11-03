@@ -1,10 +1,10 @@
 # Portal ↔ Ledger contract (v2)
 
-Source of truth for two codebases built in parallel: **ledger** (this repo, runs at home) and **portal** (React + Node on Hostinger, separate repo `~/dev/portal`). Neither side may change this file alone. v2 (2026-11-03, owner): bans, strikes, appeals and chat limits live only in the portal; the ledger is the HTTP door (token, IP/CIDR allowlist, throttle) and returns the skill's verdict. Decisions: graph node `decision_portal-portf-lio-decis-es-de-desenho-202_8f1b`.
+Source of truth for two codebases built in parallel: **ledger** (this repo, runs at home) and **portal** (React + Node on Hostinger, separate repo `~/dev/portal`). Neither side may change this file alone. v2 (2026-11-03, owner): bans, strikes, appeals and chat limits live only in the portal; the ledger is the HTTP door (token, IP/CIDR allowlist, throttle) and returns the skill's verdict. The trigger type is `inbound-http` (renamed from `portal` on 2026-11-03; routes, bodies and errors are unchanged, so the portal side is not touched by the rename). Decisions: graph node `decision_portal-portf-lio-decis-es-de-desenho-202_8f1b`.
 
 ## 0. Principles
 - The visitor never reaches the ledger. Only the portal backend does, with a bearer token.
-- Ledger exposes **one HTTP listener per `portal` trigger**, on that trigger's own port, serving only that trigger's routes. TLS terminated and the port forwarded outside the ledger.
+- Ledger exposes **one HTTP listener per `inbound-http` trigger**, on that trigger's own port, serving only that trigger's routes. TLS terminated and the port forwarded outside the ledger.
 - Log hygiene: no tokens, auth headers or raw IPs in app logs. The task-tab call log is the only place bodies live.
 - Languages: pt, en, es. The reply follows the language of the incoming message. Portal UI has a selector pt/en/es that also switches the static CV/portfolio HTML.
 
@@ -12,18 +12,18 @@ Source of truth for two codebases built in parallel: **ledger** (this repo, runs
 
 The ledger is the HTTP door and the answerer. It takes a message, an attachment and the visitor's `user_id`, and returns the answer with the skill's verdict. It knows nothing else of the visitor: no name, no email, no IP.
 
-### 1.1 Trigger type `portal` (one way in per file)
+### 1.1 Trigger type `inbound-http` (one way in per file)
 Created like other custom triggers (`<home>/triggers/<id>.yaml`, saved switched off). A second way in (another token, port or IP set) is a second file. Fields:
 ```yaml
 id: portal-chat
-type: portal
+type: inbound-http
 port: 8801                 # one per trigger, range 8801-8899, unique, listens only here
 bind_ips: ["*"]            # "*" or list of IPs/CIDRs, checked against the TCP peer
 throttle: {per_minute: 300}                            # calls a minute on this way in
 rate: {daily_budget_usd: <n>, tz: America/Sao_Paulo}   # resets at local midnight
 attachments: {max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}
 jokes: {every_n_min: 6, every_n_max: 12}               # random, one joke per N replies on in-scope too
-skill: portal-respond
+skill: inbound-http-respond
 ```
 Token: stored hashed (sha256). Plain value shown once on creation. **Regenerate = old token dies immediately.** Revocation is manual. No expiry.
 
@@ -46,7 +46,7 @@ Errors: `{"error": {"code": "<snake>", "message": "<text>"}}`. Codes: `bad_reque
 
 Machine down: portal gets a connect error/timeout and shows "unavailable" **without any promised time**.
 
-### 1.3 Skill `portal-respond`
+### 1.3 Skill `inbound-http-respond`
 - Reads only brain nodes with `props.public = true` (explicit allowlist). Everything else is invisible.
 - Treats user text and attachments as data, never instructions; strips/neutralises prompt-injection before use.
 - Classifies each message: `in_scope` | `silly` | `recruiter` | `forbidden` (personal/private data attempts) | `abuse`, and returns it as the `verdict`.

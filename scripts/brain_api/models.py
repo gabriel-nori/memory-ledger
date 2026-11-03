@@ -300,9 +300,20 @@ class TriggerReprocess(Body):
     request_id: Text = T("The blocked or failed request to run again.")
 
 
-class PortalAction(Body):
-    id: Text = T("The portal trigger's id.")
-    action: Text = T("`regenerate` or `revoke`.")
+class InboundHttpAction(Body):
+    id: Text = T("The inbound HTTP trigger's id.")
+    action: Text = T("`regenerate`, `revoke` or `delete`.")
+
+
+class InboundHttpTrigger(Body):
+    id: Text = T("The trigger's id, which is also its file name in `<home>/triggers`.")
+    text: Text = T("The whole YAML, as written.")
+    check_only: Any = Field(False, description="true validates and writes nothing.")
+
+
+class InboundHttpEnable(Body):
+    id: Text = T("The trigger's id.")
+    enabled: Any = Field(None, description="true or false: rewrites only `enabled:` in its file.")
 
 
 class TriggerCancel(Body):

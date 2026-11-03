@@ -8,7 +8,6 @@ import { Section } from "@/features/shell/Section";
 import type { TasksPayload } from "@/api/types";
 import { STATUS_ORDER, facetCounts, filterTasks } from "./filter";
 import type { Excluded, Facet } from "./filter";
-import { PortalPanel } from "./PortalPanel";
 import { TaskRunCard } from "./TaskRunCard";
 import "./TasksSection.css";
 
@@ -77,8 +76,6 @@ export function TasksSection() {
       }
       actions={<LiveDot ok={live} label={live ? "live" : "offline"} />}
     >
-      <PortalPanel />
-
       <div className="ml-tasks__bar">
         <SearchInput
           value={q}
