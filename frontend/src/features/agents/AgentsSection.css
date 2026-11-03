@@ -4,35 +4,6 @@
   flex: 1; min-height: 0;
 }
 .ml-agents__rail, .ml-agents__scrim { display: none; }
-@media (max-width: 760px) {
-  /* The list stays on the left as a slim rail; opening it lays it over the thread. */
-  .ml-agents { grid-template-columns: 44px minmax(0, 1fr); gap: var(--space-2); position: relative; }
-  .ml-agents__rail {
-    display: flex; align-items: center; justify-content: center; align-self: start;
-    width: 44px; height: 44px; margin-top: 44px; padding: 0; cursor: pointer;
-    color: var(--fg); background: var(--panel-solid); border: 0.5px solid var(--border);
-    border-radius: var(--radius-lg);
-  }
-  .ml-agents__rail:hover { background: var(--press); }
-  .ml-agents__scrim {
-    display: block; position: fixed; inset: 0; z-index: var(--z-scrim);
-    background: #0006; animation: ml-fade var(--t-move) var(--ease-spring);
-  }
-  .ml-agents__side {
-    position: fixed; top: 0; left: 0; bottom: 0; z-index: var(--z-drawer);
-    width: min(320px, 86vw); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-    box-shadow: var(--shadow-panel);
-    transform: translateX(-110%); visibility: hidden;
-    transition: transform var(--t-move) var(--ease-spring), visibility 0s var(--t-move);
-  }
-  .ml-agents__side.is-open { transform: none; visibility: visible; transition-delay: 0s; }
-  .ml-agents__main { grid-column: 2; }
-  .ml-agents__item { max-width: 92%; }
-  .ml-agents__head { padding: var(--space-2) var(--space-3); }
-  .ml-agents__actions .ml-search { width: 100%; }
-  .ml-agents__thread { padding: var(--space-3); }
-  .ml-agents__compose { padding: var(--space-2) var(--space-3); }
-}
 .ml-agents__side, .ml-agents__main {
   border: 0.5px solid var(--border); border-radius: var(--radius-lg);
   background: var(--panel-solid); display: flex; flex-direction: column; min-height: 0;
@@ -181,6 +152,7 @@
 /* Every control beside the box is as tall as one line of it, so the icons sit on one line. */
 .ml-agents__compose-row > .ml-btn { height: 44px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ml-agents__compose-row > .ml-btn--ghost { width: 44px; padding: 0; }
+.ml-agents__send { width: 44px; padding: 0; }
 
 /* The slash-command popup: above the message box, over the thread. */
 .ml-slash {
@@ -239,3 +211,44 @@
 .ml-agents__sub-body { margin: 4px 0 4px var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
 .ml-agents__spawn { display: flex; align-items: flex-start; gap: var(--space-2); flex: 1 1 100%; }
 .ml-agents__field:has(.ml-agents__dictate .ml-btn--primary) .ml-input--area { padding-right: 170px; }
+
+/* Mobile overrides last, so they win over the base rules above at equal specificity. */
+.ml-agents__opt-narrow { display: none; }
+@media (max-width: 760px) { .ml-agents__opt-narrow { display: inline-flex; } }
+@media (max-width: 760px) {
+  /* The list stays on the left as a slim rail; opening it lays it over the thread. */
+  .ml-agents { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .ml-agents__rail {
+    position: absolute; top: 44px; left: var(--space-2); z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; padding: 0; cursor: pointer;
+    color: var(--fg); background: var(--panel-solid); border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .ml-agents__rail:hover { background: var(--press); }
+  .ml-agents__scrim {
+    display: block; position: fixed; inset: 0; z-index: var(--z-scrim);
+    background: #0006; animation: ml-fade var(--t-move) var(--ease-spring);
+  }
+  .ml-agents__side {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: var(--z-drawer);
+    width: min(320px, 86vw); border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-panel);
+    transform: translateX(-110%); visibility: hidden;
+    transition: transform var(--t-move) var(--ease-spring), visibility 0s var(--t-move);
+  }
+  .ml-agents__side.is-open { transform: none; visibility: visible; transition-delay: 0s; }
+  .ml-agents__item { max-width: 92%; }
+  .ml-agents__head { padding: var(--space-2) var(--space-3) var(--space-2) 52px; }
+  .ml-agents__actions .ml-search { width: 100%; }
+  .ml-agents__thread { padding: var(--space-3); }
+  .ml-agents__compose { padding: var(--space-2) var(--space-3); }
+  /* One row: the clip on the left of the box; send (or the talk mic) and the options arrow on its right as a single block. */
+  .ml-agents__compose-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: end; }
+  .ml-agents__compose-row > .ml-agents__attach { grid-column: 1; grid-row: 1; }
+  .ml-agents__compose-row > .ml-agents__field { grid-column: 2; grid-row: 1; }
+  .ml-agents__compose-row > .ml-agents__send, .ml-agents__compose-row > :last-child:not(.ml-agents__field) { grid-column: 3; grid-row: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .ml-agents__compose-row > .ml-agents__opt { grid-column: 4; grid-row: 1; width: 22px; margin-left: calc(var(--space-2) * -1); border-top-left-radius: 0; border-bottom-left-radius: 0; border: 0.5px solid var(--border); }
+  .ml-agents__opt-wide { display: none; }
+  .ml-agents__opt[aria-expanded="true"] .ml-agents__opt-narrow { transform: rotate(180deg); }
+}

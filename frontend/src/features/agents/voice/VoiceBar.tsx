@@ -79,6 +79,7 @@ export function ConversationButton({ session, status, conv, writable }: Pick<Pro
   const on = session.conversation;
   return (
     <Button
+      className="ml-agents__send"
       variant={on ? "primary" : "default"}
       aria-label="Conversation mode"
       aria-pressed={on}

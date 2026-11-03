@@ -84,6 +84,10 @@ from the next turn.
   turns on **conversation mode**; once there is text or a file, it is Send again.
 - The **Options** button (sliders) opens agent and model, history (last n exchanges),
   plugins, Read-only, Speak and narration.
+- **Send** is an icon (a paper plane), with "Send" as its label and tooltip.
+- On a narrow screen (760px or less) the chat uses the full width, **Attach** sits on
+  the left, and **Send** and **Options** are one block on the right. Options is then a
+  small arrow (22px wide) above Send instead of the sliders.
 
 Read-only limits what the agent does **outside** the brain. The brain itself is
 read and written in both modes, without asking: that is the offload rule

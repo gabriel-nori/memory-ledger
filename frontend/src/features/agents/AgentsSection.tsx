@@ -967,6 +967,7 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         />
         <Button
           variant="ghost"
+          className="ml-agents__attach"
           aria-label="Attach files"
           title="Attach files (or drop or paste them here)"
           disabled={!writable}
@@ -976,12 +977,14 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         </Button>
         <Button
           variant="ghost"
+          className="ml-agents__opt"
           aria-label="Options"
           aria-expanded={options}
           title="Agent, model, history, plugins, read-only and voice for this message"
           onClick={() => setOptions((v) => !v)}
         >
-          <Icon name="sliders" />
+          <span className="ml-agents__opt-wide" aria-hidden="true"><Icon name="sliders" /></span>
+          <span className="ml-agents__opt-narrow" aria-hidden="true"><Icon name="chevron-up" /></span>
         </Button>
         {popup ? <CommandPopup items={matches} active={at} readOnly={readOnly} onPick={choose} onHover={setAt} /> : null}
         <div className="ml-agents__field">
@@ -1010,8 +1013,16 @@ function Composer({ conv, voice, settled, ttsOn, onTts, onVerbosity, pick, conne
         {talkMode ? (
           <ConversationButton session={session} status={voice} conv={conv} writable={writable} />
         ) : (
-          <Button variant="primary" disabled={!canSend} onClick={() => void send()}>
-            {sending ? "sending…" : "Send"}
+          <Button
+            variant="primary"
+            className="ml-agents__send"
+            aria-label="Send"
+            title={sending ? "Sending…" : "Send"}
+            aria-busy={sending}
+            disabled={!canSend}
+            onClick={() => void send()}
+          >
+            <Icon name="send" />
           </Button>
         )}
       </div>
