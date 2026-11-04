@@ -29,6 +29,7 @@ remember       recall         add-task         send-slack        learn-skill
 ingest-context visualize      complete-task     calendar          writing-style
 read-email     export-memory  follow-up         delegate          custom-trigger-builder
                                                 respond
+                                                inbound-http-respond
 read-jira                     remind
 slack-inbox
 web-search
@@ -57,6 +58,7 @@ share is the graph, so the real coupling is in the read and write surfaces below
 | `recall` | none | `search`, `get-node`, `neighbors`, `list`, `due` |
 | `remember` | any node type + edges + `areas` | `search`, `areas` |
 | `remind` | `reminder`, `about` | `person.tz`, the routine store |
+| `inbound-http-respond` | one `note` through `remember` for a recruiter message; the answer through `trigger.py inbound-http reply` | nodes with `props.public = true`, through `public_nodes` only |
 | `respond` | `trigger_action` rows (copied onto the `request` node), plus what the requested work produces | `request`, `person`, `jira-issue`, `task`; the thread or issue through its MCP |
 | `send-slack` | `note` (optional) | `person` props (`slack`, `lang`), `writing-sample` |
 | `slack-inbox` | none directly | Slack |
@@ -77,6 +79,7 @@ skill offers, not a precondition it waits on.
 - `read-email`, `slack-inbox` and `read-jira` hand ingestible content to `ingest-context`.
 - `ingest-context` hands the owner's own action items to `add-task`.
 - `remind` fires a routine that reaches the person through `send-slack`.
+- `inbound-http-respond` reaches the owner through `send-slack` and `read-email` and records the contact through `remember`, for a recruiter message only; it is started by an `inbound-http` trigger, never by another skill.
 - `respond` enriches its answer through `recall`; it is started by the trigger engine (`scripts/trigger.py`), never by another skill.
 - `send-slack` drafts through `writing-style`.
 - `slack-inbox` routes each message to whichever skill matches its intent.
