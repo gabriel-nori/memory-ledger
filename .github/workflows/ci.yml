@@ -32,6 +32,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
+        id: py
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -83,12 +84,15 @@ jobs:
 
       # serve.py builds the API server's venv under ~/.cache/memory-ledger on
       # first start, named by a hash of the requirements and the Python version.
-      # Keyed the same way here, so a pin change is a fresh venv in CI too.
+      # Keyed the same way here, so a pin change is a fresh venv in CI too. The
+      # key carries the exact Python (3.13.x): a venv's bin/python is a symlink
+      # into the runner's toolcache, so when the image moves to a new patch the
+      # restored venv dangles and serve.py dies on execv (FileNotFoundError).
       - name: Cache the server venv
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/cache/memory-ledger
-          key: server-venv-${{ runner.os }}-py3.13-${{ hashFiles('scripts/requirements-server.txt', 'services/b2b/requirements.txt') }}
+          key: server-venv-${{ runner.os }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('scripts/requirements-server.txt', 'services/b2b/requirements.txt') }}
 
       # The suites are pytest suites (tests/conftest.py holds the shared
       # fixtures); pytest is the only thing they install. They are otherwise
