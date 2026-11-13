@@ -15,9 +15,9 @@ import json
 import re
 import secrets
 import subprocess
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Body as BodyParam, Depends
+from fastapi import APIRouter, Body as BodyParam, Depends, Request
 from fastapi.responses import JSONResponse
 
 import _platform
@@ -49,7 +49,36 @@ def require_writable():
         raise Refused(403, "server started with --no-write; writes are disabled")
 
 
-router = APIRouter(prefix="/api", dependencies=[Depends(require_writable)],
+def _hostname(value: str) -> str:
+    """'http://127.0.0.1:8770' or '[::1]:8770' -> '127.0.0.1' / '::1'."""
+    try:
+        host = urlsplit(value if "//" in value else f"//{value}").hostname
+    except ValueError:                      # a malformed header is a refusal, not a 500
+        return ""
+    return (host or "").lower()
+
+
+def _netloc(value: str) -> str:
+    try:
+        return urlsplit(value).netloc.lower()
+    except ValueError:
+        return ""
+
+
+def require_local_origin(request: Request):
+    """A write must come from this machine's own page: a web page the person has open
+    elsewhere can fire a body-less POST at 127.0.0.1 without a CORS preflight."""
+    allowed = state.LOCAL_HOSTS | state.extra_hosts()
+    if _hostname(request.headers.get("host", "")) not in allowed:
+        raise Refused(403, "refused: this is not the address the server listens on")
+    origin = request.headers.get("origin")
+    if origin is not None and (_hostname(origin) not in allowed
+                               or _netloc(origin) != request.headers.get("host", "").lower()):
+        # same origin only: another page on this machine (another port) is as foreign as a website
+        raise Refused(403, "refused: writes come only from the brain's own page")
+
+
+router = APIRouter(prefix="/api", dependencies=[Depends(require_writable), Depends(require_local_origin)],
                    responses=ENVELOPE_RESPONSES)
 
 
@@ -1000,7 +1029,9 @@ def agent_provider_key(data: m.AgentProviderKey = body(m.AgentProviderKey)):
 
 @router.post("/agent-provider-install", tags=["agents"], summary="Install a provider's CLI",
              description="Runs `npm install -g <package>` on this machine, so the body must carry "
-                         "`confirm: true`. Takes up to five minutes.")
+                         "`confirm: true`. Takes up to five minutes. A CLI that installs by a remote "
+                         "script (antigravity) is never run from here: the answer is a 400 with "
+                         "`manual: true` and the `command` to run in a terminal.")
 def agent_provider_install(data: m.AgentProviderInstall = body(m.AgentProviderInstall)):
     kind, bad = _provider(data.kind)
     if bad:

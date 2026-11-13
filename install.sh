@@ -25,7 +25,21 @@ export UV_UNMANAGED_INSTALL="$home/bin"   # uv's installer: put uv here, leave s
 if ! command -v uv >/dev/null 2>&1; then
   if [ ! -x "$home/bin/uv" ]; then
     command -v curl >/dev/null 2>&1 || { echo "curl is needed to fetch uv (https://astral.sh/uv)." >&2; exit 1; }
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # a pinned installer, run only if it is the one we checked (bump both together)
+    uv_version="0.13.8"
+    uv_sha256="4d8fa56e00f16b66feecacbd943773c61d61ab768b13856de350d86fd8740e2f"
+    tmp_installer="$(mktemp)"
+    trap 'rm -f "$tmp_installer"' EXIT
+    curl -LsSf "https://astral.sh/uv/$uv_version/install.sh" -o "$tmp_installer"
+    if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$tmp_installer" | cut -d' ' -f1)"
+    else got="$(shasum -a 256 "$tmp_installer" | cut -d' ' -f1)"; fi
+    if [ "$got" != "$uv_sha256" ]; then
+      rm -f "$tmp_installer"
+      echo "The uv installer does not match the pinned checksum; refusing to run it." >&2
+      exit 1
+    fi
+    sh "$tmp_installer"
+    rm -f "$tmp_installer"
   fi
   export PATH="$home/bin:$PATH"
 fi

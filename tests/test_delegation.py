@@ -61,6 +61,38 @@ def test_the_delegate_sees_only_the_brief(setup):
     assert "just this" in seen and "second brain" not in seen and "match-rules" not in seen
 
 
+def test_the_delegate_runs_in_an_empty_cwd_without_the_brains_secrets(setup, monkeypatch, module_brain_home):
+    _, rid, log = setup
+    probe = make_exe(module_brain_home / "probe-gemini", '''#!/usr/bin/env python3
+import json, os, sys
+sys.stdin.read()
+open(os.environ["FAKE_CLI_LOG"], "w").write(json.dumps({"cwd": os.getcwd(), "env": sorted(os.environ)}))
+print("ok")
+''')
+    agents.save_config({"connectors": [{"kind": "claude"}, {"kind": "gemini", "bin": str(probe)}]})
+    monkeypatch.setenv("NEO4J_PASSWORD", "hunter2")
+    monkeypatch.setenv("SOME_API_KEY", "k")
+    assert delegation.delegate("gemini", "x", rid)["ok"]
+    seen = json.loads(log.read_text(encoding="utf-8"))
+    assert Path(seen["cwd"]).resolve() != graph.home_dir().resolve()
+    assert not Path(seen["cwd"]).exists()                    # the scratch dir is gone after the run
+    assert "NEO4J_PASSWORD" not in seen["env"] and "SOME_API_KEY" not in seen["env"]
+
+
+def test_the_delegate_keeps_its_own_credential_and_nothing_else(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "own")
+    monkeypatch.setenv("GEMINI_API_KEY", "other")
+    monkeypatch.setenv("SECOND_BRAIN_DB", "/x/graph.db")
+    env, scratch = agents._child_context({"isolated": True}, "claude")
+    try:
+        assert env.get("ANTHROPIC_API_KEY") == "own" and "GEMINI_API_KEY" not in env
+        assert "SECOND_BRAIN_DB" not in env
+    finally:
+        scratch.cleanup()
+    env, scratch = agents._child_context({}, "claude")
+    assert scratch is None and env.get("GEMINI_API_KEY") == "other"
+
+
 def test_off_by_default_and_needs_the_flag(setup, monkeypatch):
     con, rid, _ = setup
     agents.save_config({"delegation": {"enabled": False}})

@@ -554,7 +554,7 @@ id: site-chat
 type: inbound-http
 enabled: false
 port: 8801                 # 8801-8899, one per trigger, unique
-bind_ips: ["*"]            # or IPs and CIDRs, checked against the TCP peer
+bind_ips: ["127.0.0.1"]   # default: this machine only. "*" or IPs/CIDRs open it; plain HTTP, so the token can be sniffed on a LAN
 throttle: {per_minute: 300}   # calls a minute on this way in
 rate: {daily_budget_usd: 5, tz: America/Sao_Paulo}   # resets at local midnight
 attachments: {max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}

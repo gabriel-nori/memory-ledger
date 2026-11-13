@@ -51,6 +51,8 @@ def checkout(tmp_path, monkeypatch):
         return feed["blob"]
 
     monkeypatch.setattr(updates, "_get", fake_get)
+    monkeypatch.setattr(updates, "_verify_attestation", lambda zpath: None)
+    monkeypatch.setattr(updates.flags, "enabled", lambda name: False)
     return tmp_path, feed
 
 
@@ -120,3 +122,53 @@ def test_the_release_is_fetched_through_net_so_a_missing_ca_bundle_is_handled(mo
     assert updates._get(updates.API, 123) == b"{}"
     assert seen["url"] == updates.API and seen["limit"] == 123
     assert seen["headers"]["User-Agent"] == "memory-ledger-updater"
+
+
+def test_the_updater_reads_this_repo_and_no_fork():
+    assert updates.REPO == "Optibus/memory-ledger"
+    assert updates.API.startswith("https://api.github.com/repos/Optibus/memory-ledger/")
+    assert updates.DOWNLOAD_PREFIX.startswith("https://github.com/Optibus/memory-ledger/")
+
+
+def test_the_poll_is_off_until_the_flag_is_on(checkout, monkeypatch):
+    calls = []
+    monkeypatch.setitem(updates._cache, "latest", None)
+    monkeypatch.setattr(updates, "_get", lambda url, limit=0: calls.append(url) or b"{}")
+    info = updates.check()
+    assert calls == [] and info["available"] is False
+    monkeypatch.setattr(updates.flags, "enabled", lambda name: name == "update_check")
+    updates.check()
+    assert calls == [updates.API]
+
+
+def test_a_release_that_is_not_attested_changes_nothing(checkout, monkeypatch):
+    root, _ = checkout
+
+    def refuse(zpath):
+        raise ValueError("the release is not attested")
+
+    monkeypatch.setattr(updates, "_verify_attestation", refuse)
+    res = updates.apply()
+    assert res["ok"] is False and "attested" in res["error"]
+    assert (root / "scripts" / "old.py").exists() and not (root / "scripts" / "new.py").exists()
+
+
+def test_without_gh_the_attestation_cannot_be_checked(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates.shutil, "which", lambda name: None)
+    with pytest.raises(ValueError, match="GitHub CLI"):
+        updates._verify_attestation(tmp_path / "x.zip")
+
+
+def test_a_failed_gh_attestation_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates.shutil, "which", lambda name: "/usr/bin/gh")
+    seen = {}
+
+    def run(argv, **kw):
+        seen["argv"] = argv
+        return type("R", (), {"returncode": 1})()
+
+    monkeypatch.setattr(updates._textio, "run_text", run)
+    with pytest.raises(ValueError, match="not attested"):
+        updates._verify_attestation(tmp_path / "x.zip")
+    assert seen["argv"][-4:] == ["--repo", "Optibus/memory-ledger", "--signer-workflow",
+                                 "Optibus/memory-ledger/.github/workflows/release.yml"]

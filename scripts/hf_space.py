@@ -11,7 +11,9 @@ Two rules live here in code, not in a prompt:
     offers for the aspect wanted, and the fewest steps for the quality wanted;
   - the models list is free: Space metadata is public and listing it never starts a GPU job.
 
-The Space is a third party's: the prompt is sent to its server. Run as a script it is the
+The Space is a third party's: the prompt AND the token are sent to its server, so there is no
+default Space (the owner names one) and the token goes to that Space's host only; use a
+fine-grained read-only token. The image is downloaded from that same host and no other. Run as a script it is the
 wrapper an agent calls:  python3 hf_space.py spaces | generate --prompt "..." [--aspect 16:9]
 """
 from __future__ import annotations
@@ -32,7 +34,6 @@ import graph
 import providers
 
 KIND = "hfspace"
-DEFAULT_SPACE = "a-test-user-in-the-wrold/qwen-image-21-uncensored"
 API = "https://huggingface.co/api"
 IMAGES_DIR = "images"
 # fewest steps that still reads as the thing asked for; the Space's own slider bounds clamp them
@@ -47,6 +48,16 @@ class SpaceError(RuntimeError):
 
 
 # ---------------------------------------------------------------- http
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect would carry the token to wherever the Space points it."""
+
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def _req(url: str, *, data: Any = None, token: str = "", timeout: float = 30.0) -> urllib.request.Request:
     h = {"User-Agent": "memory-ledger"}
     if data is not None:
@@ -86,8 +97,6 @@ def list_spaces(limit: int = 12) -> list[dict[str, Any]]:
     q = urllib.parse.urlencode({"filter": "text-to-image", "sdk": "gradio", "sort": "likes",
                                 "limit": max(limit * 3, 20)})
     ids = [s["id"] for s in _get_json(f"{API}/spaces?{q}") if s.get("id")]
-    if DEFAULT_SPACE not in ids:
-        ids.insert(0, DEFAULT_SPACE)
 
     def one(i: str) -> dict[str, Any] | None:
         try:
@@ -96,7 +105,7 @@ def list_spaces(limit: int = 12) -> list[dict[str, Any]]:
             return None
     with ThreadPoolExecutor(max_workers=8) as ex:
         rows = [r for r in ex.map(one, ids) if r and r["ready"] and r["free"]]
-    rows.sort(key=lambda r: (r["id"] != DEFAULT_SPACE, -r["likes"]))
+    rows.sort(key=lambda r: -r["likes"])
     return rows[:limit]
 
 
@@ -201,11 +210,16 @@ def _quota_hint(body: str) -> str:
     return "the Space reported an error: " + body[:300]
 
 
-def _download(url: str, token: str, dest: Path) -> None:
-    host = urllib.parse.urlparse(url).hostname or ""
+def _download(url: str, token: str, dest: Path, space_host: str) -> None:
+    """Fetch the image from the Space itself: any other host, and any non-https URL, is refused
+    (a hostile Space could otherwise point this at an address on the local network)."""
+    want = urllib.parse.urlparse(space_host)
+    got = urllib.parse.urlparse(url)
+    if got.scheme != "https" or got.hostname != want.hostname:
+        raise SpaceError(f"the Space pointed at {got.hostname or 'an invalid address'}, not at itself: "
+                         "the image was not downloaded")
     try:
-        with urllib.request.urlopen(_req(url, token=token if host.endswith(".hf.space") else ""),
-                                    timeout=60) as r:
+        with _opener.open(_req(url, token=token), timeout=60) as r:
             dest.write_bytes(r.read())
     except (OSError, ValueError) as e:
         raise SpaceError(providers.redact(f"could not download the image: {e}", "huggingface")) from None
@@ -223,7 +237,10 @@ def generate(prompt: str, *, space: str = "", aspect: str = "auto", quality: str
     if not token:
         raise SpaceError("save an HF_TOKEN first (Settings > AI providers): without it the "
                          "anonymous GPU quota is tiny")
-    info = space_info(space or DEFAULT_SPACE)
+    if not space:
+        raise SpaceError("name a Space (owner/name): there is no default, because the Space's owner "
+                         "sees your token and your prompts")
+    info = space_info(space)
     if not info["ready"]:
         raise SpaceError(f"{info['id']} is not running (stage {info['stage'] or 'unknown'})")
     host = info["host"]
@@ -249,27 +266,24 @@ def generate(prompt: str, *, space: str = "", aspect: str = "auto", quality: str
     out.mkdir(parents=True, exist_ok=True)
     ext = Path(urllib.parse.urlparse(url).path).suffix.lower()
     dest = out / f"hf-{time.strftime('%Y%m%d-%H%M%S')}{ext if ext in ('.png', '.jpg', '.jpeg', '.webp') else '.png'}"
-    _download(url, token, dest)
+    _download(url, token, dest, host)
     used = next((x for x in result if isinstance(x, int) and not isinstance(x, bool)), values.get("seed"))
     return {"ok": True, "path": str(dest), "space": info["id"], "size": values.get("size", ""),
             "steps": values.get("steps"), "seed": used}
 
 
 def ping() -> dict[str, Any]:
-    """Free check for the Test call button: the token is valid and the default Space is up.
-    No GPU job starts, so it spends no quota."""
+    """Free check for the Test call button: the token is valid. No GPU job starts, so it spends
+    no quota."""
     token = providers.load_key("huggingface")
     if not token:
         return {"ok": False, "error": "save an HF_TOKEN first (Settings > AI providers)"}
     try:
         who = _get_json(f"{API}/whoami-v2", token)
-        info = space_info(DEFAULT_SPACE)
     except SpaceError as e:
         return {"ok": False, "error": str(e)}
-    if not info["ready"]:
-        return {"ok": False, "error": f"{info['id']} is not running (stage {info['stage'] or 'unknown'})"}
-    return {"ok": True, "answer": f"token ok ({who.get('name', '?')}{', PRO' if who.get('isPro') else ''}); "
-                                  f"{info['id']} running on {info['hardware']}"}
+    return {"ok": True, "answer": f"token ok ({who.get('name', '?')}{', PRO' if who.get('isPro') else ''}). "
+                                  "Use a fine-grained read-only token: the Space you pick receives it"}
 
 
 # ---------------------------------------------------------------- the runner for a connector turn
@@ -292,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("spaces", help="free text-to-image Spaces that are running now")
     g = sub.add_parser("generate", help="one image, at the minimum size and steps that fit")
     g.add_argument("--prompt", required=True)
-    g.add_argument("--space", default="", help=f"owner/name, default {DEFAULT_SPACE}")
+    g.add_argument("--space", required=True, help="owner/name")
     g.add_argument("--aspect", default="auto", help="square, wide, tall, landscape, portrait, W:H or auto (smallest)")
     g.add_argument("--quality", default=DEFAULT_QUALITY, choices=list(QUALITY_STEPS))
     g.add_argument("--seed", type=int)

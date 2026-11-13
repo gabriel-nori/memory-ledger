@@ -139,3 +139,28 @@ def test_generated_images_are_readable_and_linked(tmp_path, monkeypatch):
     assert documents.resolve("hf-1.webp", "images") == img.resolve()
     assert agents.image_link(str(img)) == "[hf-1.webp](img:hf-1.webp)"
     assert agents.image_link(str(tmp_path / "other.webp")) == ""
+
+
+def test_a_printed_page_may_not_load_anything_from_the_network():
+    import make_document
+    with_head = make_document.with_csp("<!doctype html><html><head><title>t</title></head><body></body></html>")
+    assert "connect-src 'none'" in with_head and "default-src 'none'" in with_head
+    assert with_head.index("Content-Security-Policy") < with_head.index("<title>")
+    assert "default-src 'none'" in make_document.with_csp("<p>no head</p>")
+
+
+def test_the_served_page_has_no_connect_src():
+    from brain_api import reads
+    assert "connect-src 'none'" in reads.DOCUMENT_CSP and "default-src 'none'" in reads.DOCUMENT_CSP
+
+
+def test_a_header_tag_is_not_taken_for_the_head():
+    import make_document
+    out = make_document.with_csp("<body><header>x</header></body>")
+    assert out.startswith("<meta http-equiv") and "form-action 'none'" in out
+
+
+def test_only_html_gets_the_strict_policy():
+    pytest.importorskip("fastapi")
+    from brain_api import reads
+    assert "form-action 'none'" in reads.DOCUMENT_CSP

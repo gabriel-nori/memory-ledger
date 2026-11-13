@@ -31,6 +31,12 @@ FLAGS: dict[str, dict[str, Any]] = {
                        "Off: sub-agents stay events inside the reply.",
         "default": False,
     },
+    "update_check": {
+        "title": "Check for updates",
+        "description": "Ask GitHub Releases for a newer version on load and every 8 hours. "
+                       "Off: the server calls GitHub only when you press Check for updates.",
+        "default": False,
+    },
     "ai_providers": {
         "title": "More AI providers",
         "description": "Connect Gemini and ChatGPT (Codex) next to Claude and Ollama, each run "

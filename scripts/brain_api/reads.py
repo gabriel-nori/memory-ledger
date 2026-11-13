@@ -512,6 +512,12 @@ def document(path: str = Query("", description="Path relative to the area."),
     return documents.read(path, area)
 
 
+# An agent's page may run its own inline script and style, but cannot fetch, beacon or load anything
+# from the network: only data: images and fonts.
+DOCUMENT_CSP = ("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'")
+
+
 @router.get("/document-file", tags=["agents"], summary="One document, raw",
             description="The bytes of a document, for an iframe (HTML, PDF). HTML is served "
                         "with a CSP `sandbox` so it can run its own script but cannot reach "
@@ -522,8 +528,11 @@ def document_file(path: str = Query("", description="Path relative to the area."
         target = documents.resolve(path, area)
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=404)
-    return FileResponse(target, media_type=documents.media_type(target),
-                        headers={"Content-Security-Policy": "sandbox allow-scripts",
+    media = documents.media_type(target)
+    # the PDF viewer needs what default-src 'none' takes away; a PDF has no script of its own
+    csp = DOCUMENT_CSP if media.startswith("text/html") else "sandbox allow-scripts"
+    return FileResponse(target, media_type=media,
+                        headers={"Content-Security-Policy": csp,
                                  "X-Content-Type-Options": "nosniff"})
 
 

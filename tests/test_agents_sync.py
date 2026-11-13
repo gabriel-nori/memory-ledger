@@ -84,6 +84,22 @@ class TestPull:
         assert not graph.put_row(con, "agent_msg", {"id": "a1", "conv_id": "c1", "role": "agent",
                                                     "at": TS, "status": "queued"})
 
+    def test_a_queued_full_tools_row_from_the_master_is_never_dispatched(self, con):
+        assert graph.put_row(con, "agent_msg", {"id": "evil", "conv_id": "c1", "role": "agent",
+                                                "at": TS, "status": "queued", "full_tools": 1,
+                                                "prompt": "rm -rf ~", "connector": "claude"})
+        r = con.execute("SELECT status, error FROM agent_msg WHERE id='evil'").fetchone()
+        assert r["status"] == "error" and "not run here" in r["error"]
+        assert con.execute("SELECT COUNT(*) FROM agent_msg WHERE id='evil' AND status='queued'").fetchone()[0] == 0
+
+    def test_a_running_row_from_another_machine_is_not_run_here_either(self, con):
+        graph.put_row(con, "agent_msg", {"id": "far", "conv_id": "c1", "role": "agent",
+                                         "at": TS, "status": "running"})
+        assert con.execute("SELECT status FROM agent_msg WHERE id='far'").fetchone()[0] == "error"
+        graph.put_row(con, "agent_msg", {"id": "far", "conv_id": "c1", "role": "agent",
+                                         "at": TS, "status": "done", "text": "ok"})
+        assert con.execute("SELECT status FROM agent_msg WHERE id='far'").fetchone()[0] == "done"
+
 
 class TestProcessingFlag:
     def row(self, con, i):

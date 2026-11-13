@@ -2805,6 +2805,16 @@ def test_a_trigger_can_name_the_agent_it_runs_on(cfg, gemini, http, dispatch, co
     assert trigger.get_request(con, rid)["result"].startswith("gemini did:")
 
 
+def test_a_provider_connector_stops_running_triggers_when_the_flag_goes_off(cfg, gemini, http, dispatch, con, monkeypatch):
+    import flags
+    acfg = write_cfg(_agent_cfg(cfg, gemini))
+    ev = mention(acfg, "700.4", OWNER_ID, f"{TAG} hello")
+    rid = trigger.handle(ev, acfg, dispatch)["request_id"]
+    monkeypatch.setattr(flags, "enabled", lambda n: False)
+    assert trigger.run_request(rid, acfg)["status"] == "failed"
+    assert "ai_providers" in trigger.get_request(con, rid)["reason"]
+
+
 def test_no_agent_named_runs_the_triggers_own_claude(cfg, http, dispatch, con, home):
     ev = mention(cfg, "700.2", OWNER_ID, f"{TAG} hello")
     rid = trigger.handle(ev, cfg, dispatch)["request_id"]

@@ -50,13 +50,24 @@ def chrome() -> str | None:
     return None
 
 
+PRINT_CSP = ('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
+             'script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data:; font-src data:; connect-src \'none\'; form-action \'none\'">')
+
+
+def with_csp(html: str) -> str:
+    """The page, told it may not load anything from the network while Chrome prints it: the agent's
+    HTML is not trusted to leave nothing behind (a tracking image, a fetch)."""
+    m = re.search(r"<head(?:\s[^>]*)?>", html, re.I)
+    return html[:m.end()] + PRINT_CSP + html[m.end():] if m else PRINT_CSP + html
+
+
 def to_pdf(html: str, out: Path) -> None:
     exe = chrome()
     if not exe:
         raise SystemExit("no Chrome or Chromium found to print the PDF; save it as html instead")
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "in.html"
-        src.write_text(html, encoding="utf-8")
+        src.write_text(with_csp(html), encoding="utf-8")
         subprocess.run([exe, "--headless", "--disable-gpu", "--no-pdf-header-footer",
                         f"--print-to-pdf={out}", src.as_uri()],
                        check=True, capture_output=True, timeout=60)

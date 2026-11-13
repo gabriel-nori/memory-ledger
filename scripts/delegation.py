@@ -152,7 +152,8 @@ def delegate(target: str, task: str, reply_id: str) -> dict[str, Any]:
     turn = {"system": "You are an agent another agent handed a task. Do only that task and "
                       "answer with its result, in the language of the task. You have no access "
                       "to the owner's files or notes: work from the brief.",
-            "prompt": task.strip(), "context": [], "question": task.strip()}
+            "prompt": task.strip(), "context": [], "question": task.strip(),
+            "isolated": True}      # run_cli / _run_claude: empty temp cwd, no secrets in the env
     run_c = {**c, "timeout_s": min(int(c.get("timeout_s") or 900), d["timeout_s"])}
     try:
         res = agents.RUNNERS[c["kind"]](con, row, run_c, turn)

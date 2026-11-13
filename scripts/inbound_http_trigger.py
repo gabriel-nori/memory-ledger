@@ -62,6 +62,9 @@ CLASSES = ("in_scope", "silly", "recruiter", "forbidden", "abuse")
 TEXT_MAX = 4000                    # a message (contract 5.5)
 ATTACHMENTS_MAX = 5                # per message (contract 5.5)
 DEFAULT_BUDGET_USD = 5             # contract 5.11
+# The token travels over plain HTTP, so the way in is this machine only until the owner
+# names the peers (IPs, CIDRs, or "*" for anyone) that may call it.
+DEFAULT_BIND_IPS = ["127.0.0.1"]
 DEFAULT_PER_MINUTE = 300           # calls a minute on one trigger; a client polls every 2 s per open chat
 AUTH_FAILS_PER_MINUTE = 20         # wrong tokens a minute from one peer
 JSON_BODY_MAX = 256 * 1024         # any body that is not an upload
@@ -225,7 +228,7 @@ def settings(defn: dict) -> dict:
     jk = defn.get("jokes") if isinstance(defn.get("jokes"), dict) else {}
     rate = defn.get("rate") if isinstance(defn.get("rate"), dict) else {}
     thr = defn.get("throttle") if isinstance(defn.get("throttle"), dict) else {}
-    ips = defn.get("bind_ips", ["*"])
+    ips = defn.get("bind_ips", DEFAULT_BIND_IPS)
     return {"port": defn.get("port"), "bind_ips": [ips] if isinstance(ips, str) else list(ips),
             "per_minute": thr.get("per_minute", DEFAULT_PER_MINUTE),
             "daily_budget_usd": rate.get("daily_budget_usd", DEFAULT_BUDGET_USD), "tz": rate.get("tz") or "UTC",
@@ -263,7 +266,7 @@ def validate(defn, cfg: dict | None = None, expect_id: str = "") -> dict:
             o, _ = ct.load(other)
             if other != tid and o.get("port") == port:
                 errors.append(f"port {port} is already the port of trigger {other}")
-    ips = defn.get("bind_ips", ["*"])
+    ips = defn.get("bind_ips", DEFAULT_BIND_IPS)
     ips = [ips] if isinstance(ips, str) else ips
     if not isinstance(ips, list) or not ips or not all(_ip_entry_ok(i) for i in ips):
         errors.append('bind_ips is "*" or a list of IPs and CIDRs')
@@ -317,7 +320,7 @@ type: inbound-http
 name: {id}
 enabled: false          # trigger.py inbound-http enable {id}
 port: {port}            # 8801-8899, one per trigger
-bind_ips: ["*"]         # or a list of IPs and CIDRs, checked against the TCP peer
+bind_ips: ["127.0.0.1"]   # this machine only; "*" or a list of IPs and CIDRs opens it (plain HTTP: the token can be sniffed)
 throttle: {{per_minute: 300}}   # calls a minute on this way in; over it: 429 rate_limited
 rate: {{daily_budget_usd: 5, tz: America/Sao_Paulo}}
 attachments: {{max_mb: 10, types: [application/pdf, image/png, image/jpeg, image/webp]}}
@@ -367,6 +370,13 @@ def token_ok(con, tid: str, presented: str) -> bool:
 
 
 # ---------------------------------------------------------------- peers
+def listen_host(bind_ips: list) -> str:
+    """The address to bind: loopback while every allowed peer is on this machine, else all of them
+    (`peer_allowed` still checks each request against the list)."""
+    loopback = all(e != "*" and ipaddress.ip_network(e, strict=False).is_loopback for e in bind_ips)
+    return "127.0.0.1" if loopback else "0.0.0.0"
+
+
 def peer_allowed(peer: str, bind_ips: list) -> bool:
     if "*" in bind_ips:
         return True
@@ -941,7 +951,7 @@ class Listener:
     call is `bind_ips`, checked on every request against the TCP peer."""
 
     def __init__(self, tid: str, port: int, service: Service, host: str = "0.0.0.0"):
-        self.tid, self.port, self.service = tid, port, service
+        self.tid, self.port, self.service, self.host = tid, port, service, host
         svc = service
 
         class Handler(BaseHTTPRequestHandler):
@@ -1014,25 +1024,27 @@ class Manager:
     files: one that is switched off, edited to another port or broken is
     closed, a new one is opened. `sync` is what the server's loop calls."""
 
-    def __init__(self, dispatch=None, host: str = "0.0.0.0", scanner=None):
+    def __init__(self, dispatch=None, host: str = "", scanner=None):
         self.dispatch, self.host, self.scanner = dispatch, host, scanner
         self.listeners: dict = {}
         self.errors: dict = {}
 
     def sync(self) -> dict:
-        want = {}
+        want, hosts = {}, {}
         for tid in list_ids():
             defn, _ = ct.load(tid)
             if defn.get("enabled") is True and validate(defn, expect_id=tid)["ok"]:
                 want[tid] = defn["port"]
-        for tid in [t for t, ls in self.listeners.items() if want.get(t) != ls.port]:
+                hosts[tid] = listen_host(settings(defn)["bind_ips"])
+        for tid in [t for t, ls in self.listeners.items()
+                    if want.get(t) != ls.port or (self.host or hosts.get(t)) != ls.host]:
             self.listeners.pop(tid).stop()
         for tid, port in want.items():
             if tid in self.listeners:
                 continue
             try:
                 self.listeners[tid] = Listener(tid, port, Service(tid, self.dispatch, self.scanner),
-                                               self.host).start()
+                                               self.host or hosts[tid]).start()
                 self.errors.pop(tid, None)
             except OSError as e:
                 self.errors[tid] = f"port {port}: {e.strerror or e}"
@@ -1173,7 +1185,7 @@ def cli(action: str, tid: str = "", **kw) -> dict:
             return {"ok": False, "error": f"{tid} exists already"}
         port = kw.get("port") or free_port()
         text = TEMPLATE.format(id=tid, port=port)
-        v = validate({"id": tid, "type": TYPE, "enabled": False, "port": port, "bind_ips": ["*"],
+        v = validate({"id": tid, "type": TYPE, "enabled": False, "port": port, "bind_ips": list(DEFAULT_BIND_IPS),
                       "rate": {"daily_budget_usd": DEFAULT_BUDGET_USD, "tz": "America/Sao_Paulo"}},
                      cfg, expect_id=tid)
         if not v["ok"]:

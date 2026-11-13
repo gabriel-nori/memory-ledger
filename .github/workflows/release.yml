@@ -4,7 +4,7 @@ name: Release
 # Release. The zip is the source tree plus the built UI (frontend/dist, which git
 # does not track), so a machine that installs from it needs no Node: this is what
 # install.sh / install.ps1 and the in-app updater (scripts/brain_api/updates.py)
-# fetch. The STT/TTS models are not in it; they download on first use.
+# fetch; the updater also checks the zip's build attestation. The STT/TTS models are not in it; they download on first use.
 
 on:
   push:
@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -49,6 +51,11 @@ jobs:
           (cd dist-release && zip -qr "../$name.zip" "$name")
           sha256sum "$name.zip" > "$name.zip.sha256"
           cat "$name.zip.sha256"
+
+      - name: Attest the zip
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: memory-ledger-${{ github.ref_name }}.zip
 
       - name: Publish
         env:

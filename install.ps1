@@ -26,7 +26,20 @@ $env:UV_PYTHON_INSTALL_DIR = Join-Path $home_ 'python'
 $env:UV_UNMANAGED_INSTALL = Join-Path $home_ 'bin'
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   if (-not (Test-Path (Join-Path $env:UV_UNMANAGED_INSTALL 'uv.exe'))) {
-    Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+    # a pinned installer, run only if it is the one we checked (bump both together)
+    $uvVersion = '0.13.8'
+    $uvSha256 = '200a377ed0f8e719b1c9cbe849c736e7712ee684212f61dc9565d747ac163db0'
+    $installer = [IO.Path]::GetTempFileName() + '.ps1'
+    try {
+      Invoke-WebRequest "https://astral.sh/uv/$uvVersion/install.ps1" -OutFile $installer
+      if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLower() -ne $uvSha256) {
+        Write-Error 'The uv installer does not match the pinned checksum; refusing to run it.'
+        exit 1
+      }
+      powershell -NoProfile -ExecutionPolicy Bypass -File $installer
+    } finally {
+      Remove-Item $installer -Force -ErrorAction SilentlyContinue
+    }
   }
   $env:Path = "$($env:UV_UNMANAGED_INSTALL);$env:Path"
 }

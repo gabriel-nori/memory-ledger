@@ -461,6 +461,7 @@ def main():
     from brain_api.app import create_app
 
     state.WRITABLE = not args.no_write
+    state.BOUND_HOST = args.host
     # A read-only server must not be acting on its owner's behalf.
     state.TRIGGERS = not (args.no_trigger or args.no_write)
     # nor pulling into, or pushing from, a brain it was told not to write

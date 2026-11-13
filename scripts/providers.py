@@ -68,7 +68,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     "hfspace": {
         "title": "Hugging Face Space (image)", "bin": "", "npm": "", "http": True, "key_from": "huggingface",
         "key_env": "HF_TOKEN", "check": [], "login": "", "models": [],
-        "default_model": "a-test-user-in-the-wrold/qwen-image-21-uncensored",
+        "default_model": "",
     },
     "ollama": {
         "title": "Ollama", "bin": "", "npm": "", "key_env": "", "check": [], "login": "",
@@ -326,28 +326,18 @@ def install_brain(kind: str, bin_name: str = "", timeout: int = 120) -> dict[str
 
 # ---------------------------------------------------------------- wizard actions
 def install(kind: str, timeout: int = 300) -> dict[str, Any]:
-    """Run the provider's install (`npm install -g`, or the vendor's script for Antigravity).
-    The caller has the person's explicit yes."""
+    """Run the provider's `npm install -g`. A provider that installs by a vendor script (Antigravity)
+    is not run here: the answer carries the command for the person to run. The caller has the
+    person's explicit yes."""
     import _textio
     cmd = install_command(kind)
     if not cmd:
         return {"ok": False, "error": f"{kind!r} has nothing to install"}
     if PROVIDERS[kind].get("script"):
-        argv = (["powershell", "-NoProfile", "-Command", cmd] if os.name == "nt"
-                else ["bash", "-c", cmd])
-        try:
-            r = _textio.run_text(argv, timeout=timeout)
-        except Exception as e:
-            return {"ok": False, "error": f"the installer did not finish: {e}", "command": cmd}
-        tail = ((r.stderr or "") + (r.stdout or "")).strip()[-600:]
-        if r.returncode != 0:
-            return {"ok": False, "error": tail or f"installer exited {r.returncode}", "command": cmd}
-        # the script puts agy in ~/.local/bin, which may not be on this process's PATH yet
-        d = detect(kind)
-        if not d["installed"]:
-            return {"ok": False, "command": cmd,
-                    "error": "installed, but agy is not on PATH yet (add ~/.local/bin and restart the server)"}
-        return {"ok": True, "command": cmd, **d, **brain_state(kind)}
+        # a vendor's remote script is never run from the server: the person runs it
+        return {"ok": False, "manual": True, "command": cmd,
+                "error": "this CLI installs with the vendor's own script: run the command in your terminal, "
+                         "then press Detect"}
     npm = _platform.resolve_bin("npm")
     if not (os.path.isfile(npm) and os.access(npm, os.X_OK)):
         return {"ok": False, "error": "npm is not installed (it ships with Node.js)",

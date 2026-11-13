@@ -1,10 +1,14 @@
 """Updates from GitHub Releases: ask what is newest, and install it.
 
-`check()` reads the latest release of REPO (at most once per CHECK_EVERY_S; the
-page asks on load and every 8 hours), and reports whether it is newer than the
-`version` in `.claude-plugin/plugin.json`. `apply()` downloads that release's
-zip, verifies it against the SHA-256 published beside it, swaps the code in and
-leaves the restart to `serve.py`, which re-execs when its own files change.
+`check()` reads the latest release of REPO and reports whether it is newer than
+the `version` in `.claude-plugin/plugin.json`. It reaches GitHub only when the
+`update_check` flag is on (off by default) or when the person asks (`force`); the
+page's own poll, on load and every 8 hours, therefore does nothing until they opt
+in. `apply()` downloads that release's zip, verifies it against the SHA-256
+published beside it AND against its build attestation (`gh attestation verify`,
+signed by REPO's own workflow), swaps the code in and leaves the restart to
+`serve.py`, which re-execs when its own files change. Without `gh`, or with an
+attestation that does not verify, nothing is installed.
 
 Nothing outside the checkout is touched: the brain (`~/.second_brain`) is
 never read or written here. A checkout that is a git clone is not updated this
@@ -19,6 +23,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -26,14 +31,18 @@ import zipfile
 from pathlib import Path
 
 import _net
+import _textio
+import flags
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-REPO = "gabriel-nori/memory-ledger"
+REPO = "Optibus/memory-ledger"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOAD_PREFIX = f"https://github.com/{REPO}/releases/download/"
 CHECK_EVERY_S = 8 * 3600
 TIMEOUT_S = 30
 MAX_ZIP_BYTES = 300 * 1024 * 1024
+ATTEST_TIMEOUT_S = 120
+SIGNER_WORKFLOW = f"{REPO}/.github/workflows/release.yml"    # the one that builds a release
 KEEP = {".git"}                 # never replaced, whatever the release holds
 OLD_DIR, NEW_DIR = ".update-old", ".update-new"
 
@@ -71,8 +80,9 @@ def is_checkout() -> bool:
 
 def check(force: bool = False) -> dict:
     """What the page shows: the running version, the latest, and whether it can be installed."""
+    polling = force or flags.enabled("update_check")
     with _lock:
-        if force or time.time() - _cache["at"] > CHECK_EVERY_S:
+        if polling and (force or time.time() - _cache["at"] > CHECK_EVERY_S):
             try:
                 rel = _release()
                 _cache.update(latest={"tag": rel.get("tag_name", ""), "notes": (rel.get("body") or "")[:4000],
@@ -102,10 +112,25 @@ def _asset(latest: dict, name: str) -> str:
     raise ValueError(f"the release has no {name}")
 
 
+def _verify_attestation(zpath: Path) -> None:
+    """Raise unless GitHub vouches that REPO's own workflow built this zip."""
+    gh = shutil.which("gh")
+    if not gh:
+        raise ValueError("cannot verify the release: install the GitHub CLI (gh) or update with git pull")
+    try:
+        r = _textio.run_text([gh, "attestation", "verify", str(zpath), "--repo", REPO,
+                              "--signer-workflow", SIGNER_WORKFLOW], timeout=ATTEST_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise ValueError("the attestation check timed out: nothing was changed")
+    if r.returncode != 0:
+        raise ValueError(f"the release is not attested by {REPO}: nothing was changed")
+
+
 def _safe_extract(blob: bytes, dest: Path) -> Path:
     """Unpack the zip into `dest` and return its single top-level directory."""
     zpath = dest / "release.zip"
     zpath.write_bytes(blob)
+    _verify_attestation(zpath)
     root = dest.resolve()
     with zipfile.ZipFile(zpath) as z:
         for n in z.namelist():

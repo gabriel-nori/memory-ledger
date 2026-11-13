@@ -164,7 +164,8 @@ binary, npm package, models, key variable). Install with
   runs on the Antigravity CLI (`kind: antigravity`, binary `agy`): Google closed the Gemini
   CLI's "Code Assist for individuals" sign-in and moved it there. Install is Google's own
   script (`curl -fsSL https://antigravity.google/cli/install.sh | bash`, or the PowerShell
-  one on Windows), run only after you confirm; sign in once by running `agy` in a terminal
+  one on Windows). The server never runs a remote script: the wizard shows the command and
+  you run it in a terminal; sign in once by running `agy` in a terminal
   (it opens the browser), headless runs then reuse the saved session. It takes no API key
   here. **Organization** keeps the Gemini CLI (`kind: gemini`) with its sign-in or API key.
   `agy` has no read-only mode: with tools off a tool that needs approval is refused, with tools
@@ -190,12 +191,12 @@ binary, npm package, models, key variable). Install with
 
 Settings > **AI providers** walks one provider at a time: **install** (the official
 `npm install -g`, run on this machine only after you confirm in a dialog, or copy it
-and run it yourself), **sign in** (the CLI's own login, or an optional API key that is
+and run it yourself; Antigravity's vendor script is only ever copied), **sign in** (the CLI's own login, or an optional API key that is
 saved to the private file and never shown again, only "API key saved"), a **test call**
 (the CLI is asked to say ok, with the saved key; the answer or the error, key masked)
 and **Add connector**. Ollama stays in the Agents card above. Backend:
 `GET /api/agent-providers`, `POST /api/agent-provider-key`, `-install` (needs
-`confirm: true`), `-brain` (needs `confirm: true`) and `-test`; Gemini and Codex are listed
+`confirm: true`; answers `manual: true` and the command for a script install), `-brain` (needs `confirm: true`) and `-test`; Gemini and Codex are listed
 only with `ai_providers` on.
 
 **Connect the brain.** A CLI only reads and writes the brain from its own sessions once it
@@ -528,10 +529,10 @@ feature that calls a model, so it is off by default.
 
 ## Hugging Face Space
 
-The `hfspace` connector makes one image on a Gradio Space (default
-`a-test-user-in-the-wrold/qwen-image-21-uncensored`) with the saved Hugging Face token, so a ZeroGPU Space
+The `hfspace` connector makes one image on a Gradio Space you name (there is no default: the Space's owner sees
+the prompt and the token, so use a fine-grained read-only token) with the saved Hugging Face token, so a ZeroGPU Space
 spends the account's daily GPU quota, not Inference Providers credits. `scripts/hf_space.py` is the wrapper:
 `spaces` lists text-to-image Spaces running on free hardware (public metadata, no GPU job), and
 `generate --prompt ... [--aspect wide] [--quality draft]` asks for the smallest size the Space offers for the
 aspect and the fewest steps for the quality (draft 12, standard 20, final 28). Images land in `<home>/images/`.
-The Test call is free: it checks the token and that the Space is up. The prompt goes to a third party's server.
+The Test call is free: it checks the token. The prompt and the token go to the Space's server, and the image is only downloaded from that same host.

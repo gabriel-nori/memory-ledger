@@ -1193,19 +1193,46 @@ def run_claude(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any]
         system_file.unlink(missing_ok=True)
 
 
+SECRET_ENV = re.compile(r"(^NEO4J_|^SECOND_BRAIN_|^MEMORY_LEDGER_|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)", re.I)
+
+
+OWN_CREDENTIAL = {"claude": ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")}
+
+
+def _child_context(turn: dict[str, Any], kind: str = "") -> tuple[dict[str, str], tempfile.TemporaryDirectory | None]:
+    """(environment, scratch dir) for a provider process. A turn flagged `isolated` (a task another
+    agent delegated) gets an empty temp cwd and an environment without the brain's connection
+    settings or any key-like variable. This keeps a poisoned brief from finding the brain by cwd or
+    by env, no more: HOME stays (the CLI needs it for its own sign-in), so a delegate can still read
+    what HOME holds. Only an OS sandbox would close that."""
+    if not turn.get("isolated"):
+        return dict(os.environ), None
+    own = set(OWN_CREDENTIAL.get(kind, ())) | {str((providers.PROVIDERS.get(kind) or {}).get("key_env") or "")}
+    env = {k: v for k, v in os.environ.items() if k in own or not SECRET_ENV.search(k)}
+    return env, tempfile.TemporaryDirectory(prefix="ml-delegate-")
+
+
+def _cwd(scratch: tempfile.TemporaryDirectory | None) -> str:
+    if scratch is not None:
+        return scratch.name
+    return str(graph.home_dir()) if graph.home_dir().is_dir() else str(Path.home())
+
+
 def _run_claude(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
                 turn: dict[str, Any], log: "_Log", session_id: str,
                 system_file: Path) -> dict[str, Any]:
     cmd = claude_command(c, reply["model"], bool(reply["full_tools"]), session_id, system_file)
     _update(con, reply["id"], session_id=session_id)
-    env = _textio.child_env({**os.environ, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
+    base, scratch = _child_context(turn, "claude")
+    env = _textio.child_env({**base, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
                              "MEMORY_LEDGER_AGENT_CONV": reply["conv_id"]})
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 stdin=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", env=env,
-                                cwd=str(graph.home_dir()) if graph.home_dir().is_dir()
-                                else str(Path.home()), bufsize=1, **_platform.group_kwargs())
+                                cwd=_cwd(scratch), bufsize=1, **_platform.group_kwargs())
     except OSError as e:
+        if scratch:
+            scratch.cleanup()
         raise AgentError(f"could not start {cmd[0]}: {e}") from None
     _platform.track(proc)
     try:
@@ -1233,6 +1260,8 @@ def _run_claude(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any
         _platform.untrack(proc)
         with _lock:
             _procs.pop(reply["id"], None)
+        if scratch:
+            scratch.cleanup()
     log.flush(force=True)
     if flags.enabled("subagent_tracking"):
         _close_subagents(con, reply["id"], "interrupted: the reply ended first")
@@ -1411,16 +1440,18 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
     log = _Log(con, reply["id"])
     cmd, stdin = providers.cli_invocation(kind, c, reply["model"], bool(reply["full_tools"]),
                                           turn["system"] + "\n\n" + turn["prompt"])
+    base, scratch = _child_context(turn, kind)
     env = _textio.child_env(providers.child_env(kind, {
-        **os.environ, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
+        **base, "MEMORY_LEDGER_AGENT_REPLY": reply["id"],
         "MEMORY_LEDGER_AGENT_CONV": reply["conv_id"]}))
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 stdin=subprocess.PIPE, text=True, encoding="utf-8",
-                                errors="replace", env=env,
-                                cwd=str(graph.home_dir()) if graph.home_dir().is_dir()
-                                else str(Path.home()), **_platform.group_kwargs())
+                                errors="replace", env=env, cwd=_cwd(scratch),
+                                **_platform.group_kwargs())
     except OSError as e:
+        if scratch:
+            scratch.cleanup()
         raise AgentError(f"could not start {cmd[0]}: {e}") from None
     _platform.track(proc)
     with _lock:
@@ -1435,6 +1466,8 @@ def run_cli(con: sqlite3.Connection, reply: dict[str, Any], c: dict[str, Any],
         _platform.untrack(proc)
         with _lock:
             _procs.pop(reply["id"], None)
+        if scratch:
+            scratch.cleanup()
     if timed_out:
         raise AgentError(f"timed out after {c.get('timeout_s')}s")
     text = (out or "").strip()
@@ -1578,6 +1611,8 @@ def _run_claimed(con: sqlite3.Connection, msg_id: str, reply: dict[str, Any]) ->
             raise AgentError(f"no connector {reply['connector']!r}")
         if not c.get("enabled"):
             raise AgentError(f"the {c['name']} connector is turned off")
+        if c["kind"] in providers.NEW_KINDS and not flags.enabled("ai_providers"):
+            raise AgentError(f"the {c['name']} connector needs the ai_providers flag, which is off")
         if reply["role"] == "subagent":        # started by hand, see spawn()
             turn = _subagent_turn(con, reply, c)
         else:

@@ -164,6 +164,13 @@ def test_ping_needs_an_installed_cli():
     assert not res["ok"] and "not installed" in res["error"]
 
 
+def test_a_vendor_script_install_is_never_run_by_the_server(monkeypatch):
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: pytest.fail("a remote script was run"))
+    res = providers.install("antigravity")
+    assert res["ok"] is False and res["manual"] is True
+    assert "install.sh" in res["command"] or os.name == "nt"
+
+
 def test_install_runs_npm_and_reports_a_failure(module_brain_home, monkeypatch):
     log = module_brain_home / "npm.log"
     npm = make_exe(module_brain_home / "fake-npm",
@@ -186,7 +193,7 @@ def test_the_wizard_routes(module_brain_home, monkeypatch, tmp_path):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
     from brain_api.app import create_app
-    client = TestClient(create_app(tmp_path, "no ui"))
+    client = TestClient(create_app(tmp_path, "no ui"), base_url="http://127.0.0.1")
     monkeypatch.setattr(flags, "enabled", lambda n: False)
     kinds = [p["kind"] for p in client.get("/api/agent-providers").json()["providers"]]
     assert kinds == ["claude", "ollama"]                       # Gemini and Codex wait for the flag
@@ -290,8 +297,8 @@ def test_generate_sends_the_minimum_and_saves_the_image(module_brain_home, tmp_p
                                                                           "steps": {"minimum": 4, "maximum": 50}}))
     monkeypatch.setattr(hf_space, "_stream", lambda h, n, data, t, to: calls.setdefault("data", data) and
                         [{"url": "https://x.hf.space/f/a.webp"}, 7])
-    monkeypatch.setattr(hf_space, "_download", lambda url, t, dest: dest.write_bytes(b"img"))
-    res = hf_space.generate("a red apple", aspect="wide", out_dir=tmp_path)
+    monkeypatch.setattr(hf_space, "_download", lambda url, t, dest, host: dest.write_bytes(b"img"))
+    res = hf_space.generate("a red apple", space="o/n", aspect="wide", out_dir=tmp_path)
     assert calls["data"] == ["a red apple", "1344x768 (16:9)", 12, 0, True]
     assert Path(res["path"]).read_bytes() == b"img" and res["path"].endswith(".webp") and res["seed"] == 7
     providers.delete_key("huggingface")
@@ -299,13 +306,34 @@ def test_generate_sends_the_minimum_and_saves_the_image(module_brain_home, tmp_p
 
 def test_generate_needs_the_token_and_a_running_space(module_brain_home, monkeypatch):
     with pytest.raises(hf_space.SpaceError, match="HF_TOKEN"):
-        hf_space.generate("a red apple")
+        hf_space.generate("a red apple", space="o/n")
     providers.save_key("huggingface", "hf_abc123")
     monkeypatch.setattr(hf_space, "space_info", lambda s: {"id": s, "stage": "SLEEPING", "ready": False})
     with pytest.raises(hf_space.SpaceError, match="not running"):
-        hf_space.generate("a red apple")
+        hf_space.generate("a red apple", space="o/n")
     providers.delete_key("huggingface")
 
 
 def test_a_quota_error_is_named_and_the_key_is_masked(monkeypatch):
     assert "ZeroGPU quota" in hf_space._quota_hint('"You have exceeded your GPU quota"')
+
+
+def test_a_space_download_stays_on_the_spaces_own_host(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(hf_space.urllib.request, "urlopen", lambda *a, **k: seen.append(a) or pytest.fail("fetched"))
+    for url in ("https://evil.example/a.png", "http://x.hf.space/a.png", "https://192.168.0.1/a.png"):
+        with pytest.raises(hf_space.SpaceError, match="not at itself|invalid"):
+            hf_space._download(url, "tok", tmp_path / "a.png", "https://x.hf.space")
+    assert seen == []
+
+
+def test_there_is_no_default_space(monkeypatch):
+    monkeypatch.setattr(providers, "load_key", lambda kind: "tok")
+    assert not hasattr(hf_space, "DEFAULT_SPACE")
+    with pytest.raises(hf_space.SpaceError, match="name a Space"):
+        hf_space.generate("a cat", space="")
+
+
+def test_a_space_redirect_is_not_followed():
+    handler = hf_space._NoRedirect()
+    assert handler.redirect_request(None, None, 302, "Found", {}, "https://evil.example/x") is None

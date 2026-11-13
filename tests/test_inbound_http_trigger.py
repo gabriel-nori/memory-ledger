@@ -127,8 +127,17 @@ def test_summary_shows_the_way_in_for_the_panel(brain_home):
     pt.cli("new", "ui")
     s = pt.summary("ui", pt.db())
     assert s["ok"], s
-    assert s["bind_ips"] == ["*"] and s["per_minute"] == pt.DEFAULT_PER_MINUTE and s["users"] == 0
+    assert s["bind_ips"] == pt.DEFAULT_BIND_IPS and s["per_minute"] == pt.DEFAULT_PER_MINUTE and s["users"] == 0
     assert not {"ban_list", "strikes", "bans"} & set(s)
+
+
+def test_the_way_in_is_this_machine_until_the_owner_opens_it():
+    assert pt.DEFAULT_BIND_IPS == ["127.0.0.1"]
+    assert pt.settings({"port": 8801})["bind_ips"] == pt.DEFAULT_BIND_IPS
+    assert pt.listen_host(pt.DEFAULT_BIND_IPS) == "127.0.0.1"
+    assert pt.listen_host(["127.0.0.1", "10.0.0.0/8"]) == "0.0.0.0"
+    assert pt.listen_host(["*"]) == "0.0.0.0"
+    assert pt.peer_allowed("10.1.2.3", pt.DEFAULT_BIND_IPS) is False
 
 
 def test_the_cli_has_no_ban_actions():
@@ -474,6 +483,24 @@ def test_listener_serves_only_its_routes_and_checks_before_reading(brain_home):
         assert c.getresponse().status == 401
     finally:
         ls.stop()
+
+
+def test_manager_rebinds_when_the_way_in_changes(brain_home):
+    mgr = pt.Manager()
+    free = next(p for p in range(8801, 8900) if _can_bind(p))
+    write(dict(DEFN, port=free, bind_ips=["127.0.0.1"]))
+    try:
+        mgr.sync()
+        assert mgr.listeners[TID].host == "127.0.0.1"
+        write(dict(DEFN, port=free, bind_ips=["10.0.0.0/8"]))
+        mgr.sync()
+        assert mgr.listeners[TID].host == "0.0.0.0"
+        write(dict(DEFN, port=free, bind_ips=["127.0.0.1"]))
+        mgr.sync()
+        assert mgr.listeners[TID].host == "127.0.0.1"
+    finally:
+        for ls in mgr.listeners.values():
+            ls.stop()
 
 
 def test_manager_follows_the_files(brain_home):

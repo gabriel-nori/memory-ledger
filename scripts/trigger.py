@@ -2235,11 +2235,15 @@ def agent_connector(cid: str) -> tuple:
     """(the connector a trigger can run on, why not). Ollama has no shell for the run
     command to act through, so only the CLI providers qualify."""
     import agents
+    import flags
+    import providers
     c = agents.connector(agents.load_config(), cid)
     if not c:
         return None, f"no agent connector {cid!r}"
     if not c.get("enabled"):
         return None, f"agent connector {cid!r} is switched off"
+    if c["kind"] in providers.NEW_KINDS and not flags.enabled("ai_providers"):
+        return None, f"agent connector {cid!r} needs the ai_providers flag, which is off"
     if c["kind"] == "ollama":
         return None, f"agent connector {cid!r} is Ollama, which cannot run a trigger"
     return c, ""
@@ -2252,8 +2256,8 @@ def run_agent(con, req: dict, conn: dict, cfg: dict) -> dict:
     t0 = _started(con, req, f"agent {conn['id']}")
     if t0 is None:
         return {"ok": False, "request_id": req["id"], "status": "cancelled"}
-    cmd, stdin = providers.cli_invocation(conn["kind"], conn, conn.get("default_model") or "", True,
-                                          build_prompt(req, cfg))
+    cmd, stdin = providers.cli_invocation(conn["kind"], conn, conn.get("default_model") or "",
+                                          bool(conn.get("full_tools", True)), build_prompt(req, cfg))
     timeout = max(30, int(conn.get("timeout_s") or 900))
     _set_request(con, req["id"], command=json.dumps(cmd, ensure_ascii=False),
                  cwd=session_cwd(cfg))

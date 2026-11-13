@@ -9,6 +9,16 @@ import time
 # is unauthenticated, so bind to 127.0.0.1 or pass --no-write when exposing it.
 WRITABLE = True
 
+# Host names a write may be addressed to or come from (the Host and Origin headers).
+# serve.py adds the --host it was started with, for a deliberate non-local bind.
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+BOUND_HOST = ""
+
+
+def extra_hosts() -> frozenset:
+    return frozenset({BOUND_HOST.lower()}) if BOUND_HOST and BOUND_HOST not in ("0.0.0.0", "::") else frozenset()
+
+
 # Identifies THIS process. The page polls it and reloads itself when it changes,
 # so a restart carries the new page to an already-open tab.
 BOOT = f"{os.getpid()}-{int(time.time())}"

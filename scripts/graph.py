@@ -779,6 +779,12 @@ def put_row(con, table: str, data: dict) -> bool:
                   and d.get("status") in ("queued", "running")
                   or r["status"] == "running" and d.get("status") != "done"):
             return False
+        if d.get("status") in ("queued", "running"):
+            # Never queue work from the master: a queued row runs here, with full tools when
+            # `full_tools` is set, so write access to the master would be code execution on
+            # every synced machine. Only a row created on this machine is dispatched.
+            d["status"] = "error"
+            d["error"] = "not run here: it was pulled from the master while it was still queued or running"
     sets = ", ".join(f"{k}=excluded.{k}" for k in d if k not in pk) or f"{pk[0]}={pk[0]}"
     con.execute(f"INSERT INTO {table}({', '.join(d)}) VALUES({', '.join('?' * len(d))}) "
                 f"ON CONFLICT({', '.join(pk)}) DO UPDATE SET {sets}", list(d.values()))
