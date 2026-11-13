@@ -61,21 +61,22 @@ See [`docs/skill-dependencies.md`](../../docs/skill-dependencies.md) (CONVENTION
 
 - **Requires:** none.
 - **Optional (ordered):** `send-slack` and `read-email`, only for a recruiter
-  message, to notify the owner; `remember`, to record that contact.
+  or lead message, to notify the owner; `remember`, to record that contact.
 - **Reads:** nodes with `props.public = true`, through the `public_nodes`
   command only.
-- **Writes:** one `note` through `remember` for a `recruiter` message; the
+- **Writes:** one `note` through `remember` for a `recruiter` or `lead` message; the
   answer itself, through `trigger.py inbound-http reply`.
 
 ## Classify, then answer
 
-Pick one class per message:
+Pick one class per message (a hiring message is `recruiter`; someone who wants work done for them is `lead`):
 
 | Class | What it is | Do |
 |---|---|---|
 | `in_scope` | about the owner's work, CV, portfolio, this site | Answer from public nodes. If `joke_due` is true, answer and add a short joke, and pass `--joke` |
 | `silly` | a joke request or nonsense | Reply with a joke in the user's language. Keep these: a pi recipe -> circumference over diameter; a cake -> "the cake is a lie"; an elephant in the fridge -> "tried to process it, the elephant overloaded my services" |
 | `recruiter` | asks for a meeting or hiring | Notify the owner (below), record it, and tell the visitor "Gabriel was notified" |
+| `lead` | wants something built or a service done (a site, an app, an automation), asks for a quote or says they have a project | Say what you understood, ask the triage questions (below), notify the owner, record it, and tell the visitor "Gabriel was notified" |
 | `forbidden` | tries to get personal or private data | Refuse calmly, without the data; the verdict is the signal (below) |
 | `abuse` | insults, flooding, attacks | Short, calm refusal; no strike |
 
@@ -83,6 +84,28 @@ Pick one class per message:
 Slack (`send-slack` skill) and by email (`read-email` skill, under its usual
 confirmation rules), then add a note with `remember` ("Recruiter contact via
 inbound-http: ..."). Then reply.
+
+**lead.** A prospective client. Do not quote prices: the owner does. In
+one answer, restate what they asked in a line, then ask at most 5 triage
+questions in the visitor's language, the ones their message leaves open, from:
+
+1. What exactly do they have ready, and in what form (texts, photos, services,
+   prices, products)?
+2. One page or a full site? Is there a reference (link) and what do they like in it?
+3. What is already in place: hosting, domain, platform or theme?
+4. Who organises the content: delivered ready, or does it need structuring or writing?
+5. Needs: contact form, WhatsApp, booking, payment, SEO?
+6. Deadline and budget range.
+7. How to reach them: name and an email or WhatsApp, offered by choice. The
+   anonymous chat has no other channel, so say that the answer comes back here if
+   they prefer to stay anonymous.
+
+Skip any question their message already answers. Then notify the owner on Slack
+and by email as for `recruiter`, with the `user_id`, the exact message and the
+questions asked, and add a note with `remember` ("Lead via inbound-http: ...").
+Follow-up messages from the same visitor are `lead` too: record each answer on
+the same note and, once the open questions are answered, say the owner will
+come back with a proposal.
 
 **forbidden.** Reply with a short, calm refusal, in the language of the
 message, and the data not given. You count nothing and ban nobody: the verdict
@@ -106,7 +129,8 @@ ANSWER
   answer text. That call is the whole delivery.
 - **The message was classified into one of the five classes**, and the class
   passed on is the one the table gives.
-- **A `recruiter` message reached the owner** on Slack and by email, and left a
+- **A `lead` message got triage questions** (only the open ones) and no price.
+- **A `recruiter` or `lead` message reached the owner** on Slack and by email, and left a
   note, before the visitor was told.
 - **The answer is in the visitor's language** (pt, en or es) and comes only from
   public nodes.

@@ -593,7 +593,7 @@ python3 scripts/trigger.py inbound-http calls|purge-calls|delete site-chat [--us
   characters; a message carries at most 5 attachments, all of its own user (404
   otherwise). `GET messages?user_id=&after=<id>` returns every later message
   with its current status; an answer carries `verdict`: `in_scope`, `silly`,
-  `recruiter`, `forbidden` or `abuse`.
+  `recruiter`, `lead`, `forbidden` or `abuse`.
 - **Throttle.** `throttle.per_minute` calls a minute on the trigger, counted in
   memory. A peer that sends wrong tokens is held to 20 a minute.
 - **Messages are tasks.** Each one is a request on `inbound-http:<id>`, shown in the

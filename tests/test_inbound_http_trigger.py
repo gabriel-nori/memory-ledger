@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import http.client
 import json
+from pathlib import Path
 import random
 import socket
 from datetime import datetime, timedelta, timezone
@@ -254,10 +255,22 @@ def test_the_answer_carries_the_verdict_and_the_ledger_counts_nothing(rig):
     assert not tables & {"portal_ban", "portal_strike", "portal_appeal", "portal_chat", "portal_salt"}
 
 
-def test_only_a_recruiter_asks_the_owner_to_be_told(rig):
-    for cls, notify in (("in_scope", False), ("silly", False), ("recruiter", True),
+def test_only_a_recruiter_or_a_lead_asks_the_owner_to_be_told(rig):
+    for cls, notify in (("in_scope", False), ("silly", False), ("recruiter", True), ("lead", True),
                         ("forbidden", False), ("abuse", False)):
         assert rig.answer(rig.say()[1]["message_id"], cls)["notify_owner"] is notify
+
+
+def test_a_lead_comes_in_by_the_inbound_call_and_the_session_is_told_how_to_triage(rig):
+    mid = rig.say("quero um site em wordpress como o da buddha spa")[1]["message_id"]
+    prompt = trigger.build_prompt(trigger.get_request(rig.con, rig.request_of(mid)), CFG)
+    assert "summoned by a caller of an inbound HTTP trigger" in prompt
+    assert "inbound-http-respond" in prompt and "lead" in prompt.split("reply_with:")[1].split("\n")[0]
+    skill = (Path(__file__).resolve().parent.parent / "skills/inbound-http-respond/SKILL.md").read_text(encoding="utf-8")
+    assert "| `lead` |" in skill and "triage" in skill.lower()
+    res = rig.answer(mid, "lead", "Que tipo de site? Qual o prazo?")
+    assert res["class"] == "lead" and res["notify_owner"] is True
+    assert rig.history()[1]["messages"][-1]["verdict"] == "lead"
 
 
 def test_a_session_that_ends_without_answering_is_error(rig):
